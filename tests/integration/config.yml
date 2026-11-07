@@ -1,0 +1,37 @@
+# Integration test configuration.
+#
+# Only the components that can be verified inside a container are enabled.
+# CrowdSec (needs the packagecloud repository), Tailscale (needs a tailnet),
+# Docker and the compose stacks are covered by check-mode predictions in CI,
+# not by a live install.
+---
+vps_harden:
+  timezone: Etc/UTC
+  ssh:
+    enabled: true
+    port: 22
+    password_authentication: false
+    permit_root_login: false
+    max_auth_tries: 3
+  ufw:
+    enabled: false
+    deadman_minutes: 0
+  fail2ban:
+    enabled: false
+  crowdsec:
+    enabled: false
+  unattended_upgrades:
+    enabled: true
+    automatic_reboot: false
+  tailscale:
+    enabled: false
+  docker:
+    enabled: false
+  monitoring:
+    enabled: false
+  logging:
+    enabled: false
+  backup:
+    enabled: false
+  audit:
+    fail_on: never

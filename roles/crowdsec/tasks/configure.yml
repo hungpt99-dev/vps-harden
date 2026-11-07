@@ -1,0 +1,251 @@
+---
+- name: Require CrowdSec to be installed
+  ansible.builtin.command:
+    argv: [cscli, --version]
+  register: crowdsec_present
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Explain how to install CrowdSec
+  ansible.builtin.fail:
+    msg: >-
+      CrowdSec is not installed on this host.
+      Run: sudo ./install.sh install crowdsec
+  when: crowdsec_present.rc != 0
+
+- name: Ensure CrowdSec is running
+  ansible.builtin.systemd:
+    name: crowdsec
+    enabled: true
+    state: started
+
+- name: Read the configured LAPI listen address
+  ansible.builtin.command:
+    argv: [grep, -E, '^[[:space:]]*listen_uri:', /etc/crowdsec/config.yaml]
+  register: crowdsec_listen_uri
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: List listening TCP sockets
+  ansible.builtin.command:
+    argv: [ss, -ltnH]
+  register: crowdsec_listeners
+  changed_when: false
+  check_mode: false
+
+- name: Fail when another process owns the LAPI port
+  ansible.builtin.fail:
+    msg: >-
+      Port {{ crowdsec_lapi_port }} is already in use by another process, so
+      CrowdSec's Local API would restart-loop with "address already in use".
+      Set crowdsec.lapi_port to a free port in config/vps-harden.yml
+      (8080 is commonly published by a container on Docker hosts).
+  when:
+    - crowdsec_manage_lapi_port | bool
+    - crowdsec_listeners.stdout is search(':' ~ crowdsec_lapi_port ~ '\s')
+    - not (crowdsec_listen_uri.stdout is search(':' ~ crowdsec_lapi_port ~ '$'))
+
+- name: Point the Local API at the configured port
+  ansible.builtin.lineinfile:
+    path: /etc/crowdsec/config.yaml
+    regexp: '^(\s*listen_uri:\s*127\.0\.0\.1:)\d+'
+    line: '\g<1>{{ crowdsec_lapi_port }}'
+    backup: true
+  when: crowdsec_manage_lapi_port | bool
+  notify: Restart crowdsec
+
+- name: Point the local agent credentials at the configured port
+  ansible.builtin.lineinfile:
+    path: /etc/crowdsec/local_api_credentials.yaml
+    regexp: '^(\s*url:\s*http://127\.0\.0\.1:)\d+'
+    line: '\g<1>{{ crowdsec_lapi_port }}'
+    backup: true
+  when: crowdsec_manage_lapi_port | bool
+  notify: Restart crowdsec
+
+- name: Apply Local API changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify the Local API answers
+  ansible.builtin.command:
+    argv: [cscli, lapi, status]
+  register: crowdsec_lapi
+  changed_when: false
+  failed_when: false
+  retries: 6
+  delay: 3
+  until: crowdsec_lapi.rc == 0
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Fail when the Local API is unreachable
+  ansible.builtin.fail:
+    msg: >-
+      CrowdSec is running but its Local API is unreachable at
+      {{ crowdsec_lapi_url }}: {{ crowdsec_lapi.stderr | default('') | trim }}.
+      Check `journalctl -u crowdsec -n 50`.
+  when:
+    - not ansible_check_mode
+    - crowdsec_lapi.rc | default(1) != 0
+
+- name: Read the installed collections
+  ansible.builtin.command:
+    argv: [cscli, collections, list, -o, json]
+  register: crowdsec_collections_current
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Compute the collections that still need installing
+  ansible.builtin.set_fact:
+    crowdsec_installed_collections: >-
+      {{ ((crowdsec_collections_current.stdout | from_json).collections
+         if (crowdsec_collections_current.stdout | from_json) is mapping
+         else (crowdsec_collections_current.stdout | from_json))
+         | map(attribute='name') | list }}
+  when:
+    - not ansible_check_mode
+    - crowdsec_collections_current.rc | default(1) == 0
+
+- name: Compute the collections still missing
+  ansible.builtin.set_fact:
+    crowdsec_missing_collections: "{{ crowdsec_collections | difference(crowdsec_installed_collections) }}"
+  when:
+    - not ansible_check_mode
+    - crowdsec_collections_current.rc | default(1) == 0
+
+- name: Install the required collections
+  ansible.builtin.command:
+    argv: [cscli, collections, install, "{{ item }}"]
+  loop: "{{ crowdsec_missing_collections | default([]) }}"
+  register: crowdsec_collection_install
+  changed_when: "'already installed' not in crowdsec_collection_install.stdout"
+  failed_when: crowdsec_collection_install.rc != 0
+
+- name: Check for /var/log/auth.log
+  ansible.builtin.stat:
+    path: /var/log/auth.log
+  register: crowdsec_auth_log
+  check_mode: false
+
+- name: Determine the acquisition method
+  ansible.builtin.set_fact:
+    crowdsec_acquisition_method: >-
+      {{ crowdsec_acquisition if crowdsec_acquisition != 'auto'
+         else ('file' if crowdsec_auth_log.stat.exists else 'journalctl') }}
+
+- name: Find existing CrowdSec acquisition files
+  ansible.builtin.find:
+    paths:
+      - /etc/crowdsec/acquis.d
+      - /etc/crowdsec
+    patterns: "*.yaml,*.yml"
+    file_type: file
+    recurse: false
+  register: crowdsec_acquis_files
+
+- name: Detect acquisition files that already cover SSH logs
+  ansible.builtin.command:
+    argv: [grep, -lE, 'auth\.log|sshd|ssh\.service', "{{ item.path }}"]
+  loop: "{{ crowdsec_acquis_files.files }}"
+  register: crowdsec_acquis_probe
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: item.path is not search('vps-harden-ssh')
+
+- name: Collect existing SSH acquisition sources
+  ansible.builtin.set_fact:
+    crowdsec_existing_acquis: >-
+      {{ crowdsec_acquis_probe.results | default([]) | selectattr('rc', 'defined')
+         | selectattr('rc', 'eq', 0) | map(attribute='item.path') | list }}
+
+- name: Report existing acquisition instead of duplicating it
+  ansible.builtin.debug:
+    msg: >-
+      SSH logs are already acquired by {{ crowdsec_existing_acquis | join(', ') }}.
+      vps-harden will not add a second source for the same file: duplicate
+      acquisition makes every event count twice in scenarios.
+  when: crowdsec_existing_acquis | length > 0
+
+- name: Deploy the SSH acquisition file
+  ansible.builtin.template:
+    src: acquis-ssh.yaml.j2
+    dest: /etc/crowdsec/acquis.d/vps-harden-ssh.yaml
+    owner: root
+    group: root
+    mode: "0640"
+  when: crowdsec_existing_acquis | length == 0
+  notify: Restart crowdsec
+
+- name: Deploy the tailnet whitelist
+  ansible.builtin.template:
+    src: whitelist-tailnet.yaml.j2
+    dest: /etc/crowdsec/postoverflows/s01-whitelists/vps-harden-tailnet.yaml
+    owner: root
+    group: root
+    mode: "0640"
+  when: crowdsec_whitelist_tailnet | bool
+  notify: Restart crowdsec
+
+- name: Validate the generated CrowdSec YAML
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - -c
+      - |
+        import sys, yaml
+        for path in sys.argv[1:]:
+            yaml.safe_load(open(path, encoding="utf-8"))
+        print("ok")
+      - /etc/crowdsec/acquis.d/vps-harden-ssh.yaml
+      - /etc/crowdsec/postoverflows/s01-whitelists/vps-harden-tailnet.yaml
+  register: crowdsec_yaml_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Stop when generated CrowdSec configuration is invalid YAML
+  ansible.builtin.fail:
+    msg: >-
+      Generated CrowdSec configuration is not valid YAML:
+      {{ crowdsec_yaml_check.stderr | default('') | trim }}
+  when:
+    - not ansible_check_mode
+    - crowdsec_yaml_check.rc | default(0) != 0
+
+- name: Apply CrowdSec changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: Read the effective collections
+  ansible.builtin.command:
+    argv: [cscli, collections, list, -o, json]
+  register: crowdsec_collections_after
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Verify the required collections are enabled
+  ansible.builtin.assert:
+    that:
+      - item in ((crowdsec_collections_after.stdout | from_json).collections
+                 if (crowdsec_collections_after.stdout | from_json) is mapping
+                 else (crowdsec_collections_after.stdout | from_json))
+                | map(attribute='name') | list
+    fail_msg: >-
+      Collection {{ item }} is not installed after applying. Check
+      `cscli collections list` and network access to the CrowdSec hub.
+    quiet: true
+  loop: "{{ crowdsec_collections }}"
+  when:
+    - not ansible_check_mode
+    - crowdsec_collections_after.rc | default(1) == 0
+
+- name: Install the firewall bouncer
+  ansible.builtin.import_tasks: bouncer.yml
+  when: crowdsec_firewall_bouncer_enabled | bool

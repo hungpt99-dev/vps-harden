@@ -1,0 +1,43 @@
+---
+# Full security configuration: install + configure every enabled component.
+- name: Apply the complete vps-harden baseline
+  hosts: localhost
+  gather_facts: true
+  vars:
+    vh_phase: all
+    vh_snapshot_reason: site
+  pre_tasks:
+    - name: Load configuration
+      ansible.builtin.import_tasks: tasks/load_config.yml
+      tags: [always]
+    - name: Pre-flight checks
+      ansible.builtin.import_tasks: tasks/preflight.yml
+      tags: [always]
+    - name: Snapshot current configuration
+      ansible.builtin.import_tasks: tasks/snapshot.yml
+      tags: [always]
+  roles:
+    - role: common
+      tags: [common, baseline]
+    - role: ssh_hardening
+      tags: [ssh, ssh_hardening]
+    - role: ufw
+      tags: [ufw, firewall]
+    - role: fail2ban
+      tags: [fail2ban]
+    - role: crowdsec
+      tags: [crowdsec]
+    - role: unattended_upgrades
+      tags: [unattended, upgrades]
+    - role: tailscale
+      tags: [tailscale]
+    - role: docker
+      tags: [docker]
+    - role: monitoring
+      tags: [monitoring]
+    - role: logging
+      tags: [logging]
+    - role: hermes_agent
+      tags: [hermes]
+    - role: backup
+      tags: [backup]

@@ -1,0 +1,40 @@
+---
+common_timezone: Etc/UTC
+common_log_dir: /var/log/vps-harden
+common_reports_dir: /var/lib/vps-harden/reports
+
+common_packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - jq
+  - rsync
+  - tar
+  - gzip
+  - acl
+
+common_enable_auditd: true
+common_auditd_rules: true
+common_manage_sysctl: true
+common_manage_permissions: true
+
+# Conservative kernel hardening. Deliberately excluded:
+#   net.ipv4.ip_forward        (Docker and Tailscale need it)
+#   net.ipv4.conf.*.rp_filter  (breaks asymmetric routing / overlays)
+#   kernel.unprivileged_bpf_disabled (can break observability tooling)
+common_sysctl_settings:
+  kernel.kptr_restrict: 2
+  kernel.dmesg_restrict: 1
+  kernel.yama.ptrace_scope: 1
+  kernel.randomize_va_space: 2
+  fs.protected_hardlinks: 1
+  fs.protected_symlinks: 1
+  fs.suid_dumpable: 0
+  net.ipv4.tcp_syncookies: 1
+  net.ipv4.conf.all.accept_redirects: 0
+  net.ipv4.conf.default.accept_redirects: 0
+  net.ipv4.conf.all.send_redirects: 0
+  net.ipv4.conf.all.accept_source_route: 0
+  net.ipv4.conf.all.log_martians: 1
+  net.ipv6.conf.all.accept_redirects: 0
+  net.ipv6.conf.all.accept_source_route: 0

@@ -1,0 +1,17 @@
+---
+backup_enabled: false
+backup_schedule: "*-*-* 03:30:00"
+backup_local_repo: /var/backups/vps-harden/restic
+backup_paths:
+  - /etc
+  - /opt/homelab
+backup_exclude:
+  - /etc/crowdsec/local_api_credentials.yaml
+  - /root/.hermes/.env
+backup_keep_daily: 7
+backup_keep_weekly: 4
+backup_keep_monthly: 3
+backup_password_file: /root/.vps-harden/restic-password
+backup_script: /usr/local/sbin/vps-harden-backup
+backup_service: vps-harden-backup.service
+backup_timer: vps-harden-backup.timer

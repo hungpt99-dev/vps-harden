@@ -1,0 +1,18 @@
+---
+# Read-only security audit. Nothing in this playbook may change the system:
+# every task is a probe, and the report is written outside /etc.
+- name: Audit the security posture of this host
+  hosts: localhost
+  gather_facts: true
+  vars:
+    vh_phase: audit
+  pre_tasks:
+    - name: Load configuration
+      ansible.builtin.import_tasks: tasks/load_config.yml
+      tags: [always]
+    - name: Pre-flight checks
+      ansible.builtin.import_tasks: tasks/preflight.yml
+      tags: [always]
+  roles:
+    - role: security_audit
+      tags: [audit, security_audit]

@@ -1,0 +1,8 @@
+---
+- name: Install baseline packages
+  ansible.builtin.import_tasks: install.yml
+  when: vh_phase | default('all') in ['install', 'all']
+
+- name: Configure the baseline
+  ansible.builtin.import_tasks: configure.yml
+  when: vh_phase | default('all') in ['configure', 'all']

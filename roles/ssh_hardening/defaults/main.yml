@@ -1,0 +1,36 @@
+---
+ssh_hardening_enabled: true
+ssh_port: 22
+
+# Values rendered into the drop-in. `false`/`true` map to "no"/"yes".
+ssh_permit_root_login: false
+ssh_password_authentication: false
+ssh_pubkey_authentication: true
+ssh_kbd_interactive_authentication: false
+ssh_max_auth_tries: 3
+ssh_login_grace_time: 30
+ssh_client_alive_interval: 300
+ssh_client_alive_count_max: 2
+ssh_x11_forwarding: false
+ssh_allow_tcp_forwarding: false
+ssh_allow_agent_forwarding: false
+ssh_permit_user_environment: false
+ssh_use_pam: true
+
+ssh_allow_users: []
+ssh_allow_groups: []
+ssh_admin_users: []
+
+# Escape hatch: proceed even when no authorized key exists. Only for hosts that
+# are accessed exclusively through a console (cloud serial, hypervisor).
+ssh_allow_no_keys: false
+
+# Sorted first on purpose: sshd uses the FIRST value it reads, so a 99-* file
+# would lose against cloud-init's 50-cloud-init.conf.
+ssh_dropin_name: 00-vps-harden.conf
+ssh_dropin_dir: /etc/ssh/sshd_config.d
+ssh_manage_main_include: true
+
+# warn = report overlapping drop-ins, our 00- file wins
+# fail = refuse to run until the operator resolves them
+ssh_conflict_policy: warn

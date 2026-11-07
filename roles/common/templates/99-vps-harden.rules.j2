@@ -1,0 +1,17 @@
+# {{ ansible_managed }}
+#
+# Minimal audit rules: identity and privilege changes, SSH configuration.
+# Not immutable (-e 2) on purpose: immutable rules require a reboot to change
+# and would make rollback impossible on a running host.
+
+-w /etc/passwd -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/group -p wa -k identity
+-w /etc/sudoers -p wa -k privilege
+-w /etc/sudoers.d/ -p wa -k privilege
+-w /etc/ssh/sshd_config -p wa -k sshd
+-w /etc/ssh/sshd_config.d/ -p wa -k sshd
+-w /root/.ssh/ -p wa -k ssh_keys
+-w /etc/sysctl.d/ -p wa -k sysctl
+
+-a always,exit -F arch=b64 -S execve -C uid!=euid -F euid=0 -k setuid_exec

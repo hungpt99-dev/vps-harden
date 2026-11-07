@@ -1,0 +1,12 @@
+---
+- name: Install Docker Engine
+  ansible.builtin.import_tasks: install.yml
+  when:
+    - docker_enabled | bool
+    - vh_phase | default('all') in ['install', 'all']
+
+- name: Configure Docker
+  ansible.builtin.import_tasks: configure.yml
+  when:
+    - docker_enabled | bool
+    - vh_phase | default('all') in ['configure', 'all']

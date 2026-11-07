@@ -1,0 +1,224 @@
+---
+# Safety model
+# ------------
+# 1. Detect conflicting managers before touching anything.
+# 2. Add ALL allow rules first; never delete a rule we did not add.
+# 3. Prove an allow rule for the SSH port exists (`ufw show added`) before
+#    `ufw enable`. If it does not, stop.
+# 4. Optionally arm a dead-man switch that disables UFW after N minutes.
+# 5. Verify the result instead of assuming the command worked.
+
+- name: Require UFW to be installed
+  ansible.builtin.command:
+    argv: [ufw, --version]
+  register: ufw_present
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Explain how to install UFW
+  ansible.builtin.fail:
+    msg: >-
+      UFW is not installed on this host.
+      Run: sudo ./install.sh install ufw
+  when: ufw_present.rc != 0
+
+- name: Detect an active firewalld
+  ansible.builtin.command:
+    argv: [systemctl, is-active, firewalld]
+  register: ufw_firewalld
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Stop when another firewall manager is active
+  ansible.builtin.fail:
+    msg: >-
+      firewalld is active. Running UFW next to it produces two owners for the
+      same packet filter and is unsupported. Disable firewalld first, or set
+      ufw.allow_conflicting_firewall=true if you really know what you are doing.
+  when:
+    - ufw_firewalld.stdout | trim == 'active'
+    - not (ufw_allow_conflicting_firewall | bool)
+
+- name: Check for a stock nftables service
+  ansible.builtin.command:
+    argv: [systemctl, is-active, nftables]
+  register: ufw_nftables_service
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Warn about hand-written nftables rules
+  ansible.builtin.debug:
+    msg: >-
+      nftables.service is active. UFW programs iptables-nft; rules loaded by
+      nftables.service are independent and may conflict. vps-harden will not
+      touch them, but you should consolidate on one manager.
+  when: ufw_nftables_service.stdout | trim == 'active'
+
+- name: Read the current firewall state
+  ansible.builtin.command:
+    argv: [ufw, status, verbose]
+  register: ufw_status_before
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Parse the current firewall state
+  ansible.builtin.set_fact:
+    ufw_was_active: "{{ ufw_status_before.stdout is search('(?m)^Status: active') }}"
+    ufw_current_incoming: "{{ ufw_status_before.stdout | regex_search('Default: (\\w+) \\(incoming\\)', '\\1') | first | default('') }}"
+    ufw_current_outgoing: "{{ ufw_status_before.stdout | regex_search('Default: \\w+ \\(incoming\\), (\\w+) \\(outgoing\\)', '\\1') | first | default('') }}"
+    ufw_current_routed: "{{ ufw_status_before.stdout | regex_search('\\((\\w+)\\) \\(routed\\)', '\\1') | first | default('') }}"
+    ufw_current_logging: "{{ ufw_status_before.stdout | regex_search('Logging: (\\w+)', '\\1') | first | default('') }}"
+
+- name: Enable IPv6 in the UFW defaults
+  ansible.builtin.lineinfile:
+    path: /etc/default/ufw
+    regexp: '^IPV6='
+    line: "IPV6={{ 'yes' if ufw_ipv6 | bool else 'no' }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload firewall
+
+- name: Set the default incoming policy
+  ansible.builtin.command:
+    argv: [ufw, default, "{{ ufw_default_incoming_policy }}", incoming]
+  when: ufw_current_incoming != ufw_default_incoming_policy
+  changed_when: true
+
+- name: Set the default outgoing policy
+  ansible.builtin.command:
+    argv: [ufw, default, "{{ ufw_default_outgoing_policy }}", outgoing]
+  when: ufw_current_outgoing != ufw_default_outgoing_policy
+  changed_when: true
+
+- name: Set the default routed policy
+  ansible.builtin.command:
+    argv: [ufw, default, "{{ ufw_default_routed_policy }}", routed]
+  when: ufw_current_routed != ufw_default_routed_policy
+  changed_when: true
+
+- name: Set firewall logging
+  ansible.builtin.command:
+    argv: [ufw, logging, "{{ ufw_logging }}"]
+  when: ufw_current_logging != ufw_logging
+  changed_when: true
+
+- name: Apply firewall rules
+  ansible.builtin.include_tasks: apply_rule.yml
+  loop: "{{ ufw_rules }}"
+  loop_control:
+    label: "{{ item.comment | default(item.port | default(item.interface)) }}"
+
+- name: Read the pending rule set
+  ansible.builtin.command:
+    argv: [ufw, show, added]
+  register: ufw_show_added
+  changed_when: false
+  check_mode: false
+
+- name: Refuse to enable UFW without an SSH allow rule
+  ansible.builtin.assert:
+    that:
+      - "('port ' ~ ufw_ssh_port) in ufw_show_added.stdout or (ufw_ssh_port ~ '/tcp') in ufw_show_added.stdout"
+    fail_msg: >-
+      No allow rule for SSH port {{ ufw_ssh_port }} exists. Enabling UFW now
+      would lock you out. Check ufw.auto_allow_ssh and ufw.extra_rules.
+    quiet: true
+
+- name: Enable UFW
+  ansible.builtin.command:
+    argv: [ufw, --force, enable]
+  register: ufw_enable_result
+  changed_when: "'Firewall is active' in ufw_enable_result.stdout"
+  when: not ufw_was_active
+
+- name: Arm the lockout dead-man switch
+  ansible.builtin.command:
+    argv:
+      - systemd-run
+      - "--on-active={{ ufw_deadman_minutes }}m"
+      - --unit=vh-ufw-deadman
+      - --collect
+      - ufw
+      - --force
+      - disable
+  changed_when: true
+  when: ufw_deadman_minutes | int > 0
+
+- name: Explain how to cancel the dead-man switch
+  ansible.builtin.debug:
+    msg: >-
+      UFW will disable itself in {{ ufw_deadman_minutes }} minutes unless you
+      verify access from a NEW session and run:
+      sudo ./install.sh firewall cancel-deadman
+  when: ufw_deadman_minutes | int > 0
+
+- name: Manage the Docker DOCKER-USER chain
+  ansible.builtin.blockinfile:
+    path: /etc/ufw/after.rules
+    marker: "# {mark} vps-harden docker-user chain"
+    insertafter: EOF
+    block: |
+      *filter
+      :DOCKER-USER - [0:0]
+      -A DOCKER-USER -i tailscale0 -j RETURN
+      -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+      -A DOCKER-USER -i docker0 -j RETURN
+      {% for port in ufw_docker_allowed_ports %}
+      -A DOCKER-USER -p tcp --dport {{ port }} -j RETURN
+      {% endfor %}
+      -A DOCKER-USER -j DROP
+      COMMIT
+  when: ufw_manage_docker_user_chain | bool
+  notify: Reload firewall
+
+- name: Apply firewall changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: Read the firewall state after applying
+  ansible.builtin.command:
+    argv: [ufw, status, verbose]
+  register: ufw_status_after
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Verify that the firewall is active with the intended policies
+  ansible.builtin.assert:
+    that:
+      - "'Status: active' in ufw_status_after.stdout"
+      - "('Default: ' ~ ufw_default_incoming_policy ~ ' (incoming)') in ufw_status_after.stdout"
+      - "('(incoming), ' ~ ufw_default_outgoing_policy ~ ' (outgoing)') in ufw_status_after.stdout"
+      - "(' ' ~ ufw_default_routed_policy ~ ' (routed)') in ufw_status_after.stdout"
+    fail_msg: >-
+      UFW is not in the expected state after applying. Run `ufw status verbose`
+      and compare with the configured policies.
+    quiet: true
+  when: not ansible_check_mode
+
+- name: Verify the Docker chain when enabled
+  ansible.builtin.command:
+    argv: [iptables, -S, DOCKER-USER]
+  register: ufw_docker_chain
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when:
+    - ufw_manage_docker_user_chain | bool
+    - not ansible_check_mode
+
+- name: Fail when the Docker chain was not applied
+  ansible.builtin.assert:
+    that:
+      - "'-j DROP' in ufw_docker_chain.stdout"
+    fail_msg: >-
+      The DOCKER-USER chain does not contain the vps-harden DROP rule.
+      Check /etc/ufw/after.rules and run `ufw reload`.
+    quiet: true
+  when:
+    - ufw_manage_docker_user_chain | bool
+    - not ansible_check_mode

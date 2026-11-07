@@ -1,0 +1,84 @@
+---
+- name: Create the Docker configuration directory
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Read the existing daemon.json
+  ansible.builtin.slurp:
+    src: /etc/docker/daemon.json
+  register: docker_daemon_existing
+  failed_when: false
+  check_mode: false
+
+- name: Compute the merged daemon configuration
+  ansible.builtin.set_fact:
+    docker_daemon_desired: >-
+      {{ docker_daemon_managed | combine(
+           (docker_daemon_existing.content | default('e30=') | b64decode | from_json),
+           recursive=True) }}
+
+- name: Write the merged daemon.json
+  ansible.builtin.copy:
+    content: "{{ docker_daemon_desired | to_nice_json }}\n"
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+    validate: "{{ ansible_playbook_python }} -m json.tool %s"
+  notify: Reload docker
+
+- name: Apply daemon.json changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start Docker
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Read the effective Docker configuration
+  ansible.builtin.command:
+    argv: [docker, info, --format, "{{ '{{' }} .LoggingDriver {{ '}}' }}"]
+  register: docker_info
+  changed_when: false
+  failed_when: false
+  retries: 5
+  delay: 2
+  until: docker_info.rc == 0
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Verify the Docker daemon answers
+  ansible.builtin.assert:
+    that:
+      - docker_info.rc | default(1) == 0
+    fail_msg: >-
+      Docker is installed but `docker info` failed:
+      {{ docker_info.stderr | default('') | trim }}.
+    quiet: true
+  when: not ansible_check_mode
+
+- name: Read the effective log driver options
+  ansible.builtin.command:
+    argv: [docker, info, --format, "{{ '{{' }} json .DriverStatus {{ '}}' }}"]
+  register: docker_driver_status
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Warn when log rotation is not active
+  ansible.builtin.debug:
+    msg: >-
+      Docker's effective configuration does not show the configured log options:
+      {{ docker_driver_status.stdout | default('') }}
+      Docker applies log-opts on container creation; existing containers keep
+      their old settings until recreated.
+  when:
+    - not ansible_check_mode
+    - docker_driver_status.stdout | default('') is not search('max-size')

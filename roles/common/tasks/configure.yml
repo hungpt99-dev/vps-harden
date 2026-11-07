@@ -1,0 +1,102 @@
+---
+- name: Read the current timezone
+  ansible.builtin.command:
+    argv: [timedatectl, show, -p, Timezone, --value]
+  register: common_current_timezone
+  changed_when: false
+  check_mode: false
+
+- name: Set the system timezone
+  ansible.builtin.command:
+    argv: [timedatectl, set-timezone, "{{ common_timezone }}"]
+  when: common_current_timezone.stdout | trim != common_timezone
+  changed_when: true
+
+- name: Ensure time synchronisation is enabled
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    enabled: true
+    state: started
+  failed_when: false
+  register: common_timesyncd
+
+- name: Warn when time synchronisation is unavailable
+  ansible.builtin.debug:
+    msg: >-
+      systemd-timesyncd could not be enabled ({{ common_timesyncd.msg | default('unknown reason') }}).
+      If chrony or another NTP client is installed, ignore this message.
+  when: common_timesyncd is failed
+
+- name: Create the log directory
+  ansible.builtin.file:
+    path: "{{ common_log_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Apply kernel hardening sysctls
+  ansible.builtin.template:
+    src: 99-vps-harden.conf.j2
+    dest: /etc/sysctl.d/99-vps-harden.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: common_manage_sysctl | bool
+  notify: Reload sysctl
+
+- name: Apply sysctl settings now
+  ansible.builtin.meta: flush_handlers
+
+- name: Read back applied sysctl values
+  ansible.builtin.command:
+    argv: [sysctl, -n, "{{ item.key }}"]
+  loop: "{{ common_sysctl_settings | dict2items }}"
+  register: common_sysctl_applied
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Warn about sysctls that could not be applied
+  ansible.builtin.debug:
+    msg: >-
+      Not applied on this host (read-only or unsupported namespace):
+      {{ common_sysctl_applied.results | selectattr('rc', 'ne', 0) | map(attribute='item.key') | list }}
+  when: common_sysctl_applied.results | selectattr('rc', 'ne', 0) | list | length > 0
+
+- name: Install audit daemon
+  ansible.builtin.apt:
+    name: auditd
+    state: present
+    install_recommends: false
+  when: common_enable_auditd | bool
+
+- name: Deploy audit rules
+  ansible.builtin.template:
+    src: 99-vps-harden.rules.j2
+    dest: /etc/audit/rules.d/99-vps-harden.rules
+    owner: root
+    group: root
+    mode: "0640"
+  when:
+    - common_enable_auditd | bool
+    - common_auditd_rules | bool
+  notify: Load audit rules
+
+- name: Enable the audit daemon
+  ansible.builtin.systemd:
+    name: auditd
+    enabled: true
+    state: started
+  when: common_enable_auditd | bool
+
+- name: Tighten permissions on sensitive files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode }}"
+  loop: "{{ common_sensitive_files }}"
+  when: common_manage_permissions | bool
+  loop_control:
+    label: "{{ item.path }}"

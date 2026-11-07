@@ -1,0 +1,8 @@
+---
+- name: Converge the baseline role
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Apply the common role
+      ansible.builtin.include_role:
+        name: common

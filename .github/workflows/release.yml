@@ -1,0 +1,54 @@
+---
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish a GitHub release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify the tag matches VERSION
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [ "$tag" != "$version" ]; then
+            echo "Tag v$tag does not match VERSION=$version" >&2
+            exit 1
+          fi
+
+      - name: Run the lint gate before publishing
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          python3 -m pip install --upgrade pip
+          python3 -m pip install "ansible-core==2.17.14" "ansible-lint==26.6.0"
+          shellcheck -x install.sh uninstall.sh scripts/*.sh tests/integration/run.sh
+          ansible-lint roles/ playbooks/
+
+      - name: Extract the changelog section
+        run: |
+          awk -v ver="## [${GITHUB_REF_NAME#v}]" '
+            $0 ~ ver {found=1; next}
+            found && /^## \[/ {exit}
+            found {print}
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then echo "See CHANGELOG.md" > release-notes.md; fi
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "vps-harden $GITHUB_REF_NAME" \
+            --notes-file release-notes.md
+
+      # Releases are published, never deployed. Applying a release to a VPS is
+      # an operator action (`install.sh configure`), deliberately not automated.

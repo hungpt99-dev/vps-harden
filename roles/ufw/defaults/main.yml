@@ -1,0 +1,21 @@
+---
+ufw_enabled: true
+ufw_default_incoming_policy: deny
+ufw_default_outgoing_policy: allow
+ufw_default_routed_policy: deny
+ufw_logging: low
+ufw_ipv6: true
+
+# Rendered from config: the SSH allow rule and the tailscale0 rule are derived
+# in playbooks/tasks/load_config.yml so they can never be forgotten.
+ufw_rules: []
+ufw_ssh_port: "{{ ssh_port | default(22) }}"
+
+ufw_deadman_minutes: 0
+ufw_manage_docker_user_chain: false
+ufw_docker_allowed_ports: []
+
+# Refuse to run alongside another active firewall manager unless explicitly
+# allowed. UFW itself is iptables-nft based; a stock nftables.service with
+# loaded rules is reported as a warning, not a failure.
+ufw_allow_conflicting_firewall: false

@@ -1,0 +1,6 @@
+---
+- name: Reload firewall
+  ansible.builtin.command:
+    argv: [ufw, reload]
+  changed_when: true
+  failed_when: false

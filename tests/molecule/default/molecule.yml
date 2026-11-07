@@ -1,0 +1,58 @@
+---
+# Molecule scenario for the baseline role.
+#
+# The docker driver needs a systemd-enabled image: a plain ubuntu:24.04 has no
+# init, so every `systemd:` task fails. The `molecule test` sequence includes the
+# idempotence step, which is the point of this scenario — a second converge must
+# report changed=0.
+dependency:
+  name: galaxy
+  options:
+    ignore-certs: false
+    ignore-errors: false
+
+driver:
+  name: docker
+
+platforms:
+  - name: vps-harden-common
+    image: geerlingguy/docker-ubuntu2404-ansible:latest
+    pre_build_image: true
+    privileged: true
+    cgroupns_mode: host
+    command: /usr/sbin/init
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    tmpfs:
+      - /run
+      - /tmp
+    capabilities:
+      - SYS_ADMIN
+
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/../roles
+    ANSIBLE_CONFIG: ${MOLECULE_PROJECT_DIRECTORY}/../ansible.cfg
+  inventory:
+    group_vars:
+      all:
+        vh_phase: all
+        common_enable_auditd: false
+        common_manage_permissions: false
+  playbooks:
+    converge: converge.yml
+    prepare: prepare.yml
+
+scenario:
+  test_sequence:
+    - destroy
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+verifier:
+  name: ansible

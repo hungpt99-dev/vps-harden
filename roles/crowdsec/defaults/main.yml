@@ -1,0 +1,31 @@
+---
+crowdsec_enabled: true
+crowdsec_manage_repo: true
+crowdsec_collections:
+  - crowdsecurity/linux
+  - crowdsecurity/sshd
+
+# auto = file source when /var/log/auth.log exists, journalctl otherwise
+crowdsec_acquisition: auto
+
+# Detection is on by default; enforcement is a separate, explicit decision.
+# Fail2ban already enforces SSH bans on this stack — two enforcement points for
+# the same traffic makes incident response ambiguous, so the bouncer is opt-in.
+crowdsec_firewall_bouncer_enabled: false
+crowdsec_bouncer_conflict_policy: fail
+crowdsec_whitelist_tailnet: true
+
+# LAPI port. 8080 is very often already published by a container on a Docker
+# host; CrowdSec then restart-loops with "address already in use". 8081 avoids
+# that collision by default.
+crowdsec_lapi_port: 8081
+crowdsec_manage_lapi_port: true
+crowdsec_lapi_url: "http://127.0.0.1:{{ crowdsec_lapi_port }}"
+
+crowdsec_repo_key_url: https://packagecloud.io/crowdsec/crowdsec/gpgkey
+crowdsec_repo_line: >-
+  deb [signed-by=/usr/share/keyrings/crowdsec-archive-keyring.gpg]
+  https://packagecloud.io/crowdsec/crowdsec/ubuntu {{ ansible_distribution_release }} main
+crowdsec_keyring: /usr/share/keyrings/crowdsec-archive-keyring.gpg
+crowdsec_bouncer_name: vps-harden-bouncer
+crowdsec_bouncer_package: crowdsec-firewall-bouncer-iptables

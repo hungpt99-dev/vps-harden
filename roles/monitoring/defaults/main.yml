@@ -1,0 +1,11 @@
+---
+monitoring_enabled: false
+monitoring_bind_address: 127.0.0.1
+monitoring_grafana_port: 3030
+monitoring_prometheus_port: 9090
+monitoring_dir: /opt/homelab/monitoring
+monitoring_retention: 15d
+monitoring_prometheus_image: prom/prometheus:v2.55.1
+monitoring_grafana_image: grafana/grafana:11.3.1
+monitoring_node_exporter_image: prom/node-exporter:v1.8.2
+monitoring_cadvisor_image: gcr.io/cadvisor/cadvisor:v0.49.1

@@ -1,0 +1,8 @@
+---
+- name: Install fail2ban with the systemd journal backend
+  ansible.builtin.apt:
+    name:
+      - fail2ban
+      - python3-systemd
+    state: present
+    install_recommends: false

@@ -1,0 +1,15 @@
+---
+- name: Reload sysctl
+  ansible.builtin.command:
+    argv: [sysctl, -p, /etc/sysctl.d/99-vps-harden.conf]
+  register: common_sysctl_reload
+  changed_when: true
+  # Keys that are read-only inside containers/unprivileged namespaces must not
+  # abort the whole run; configure.yml verifies what actually applied.
+  failed_when: false
+
+- name: Load audit rules
+  ansible.builtin.command:
+    argv: [augenrules, --load]
+  changed_when: true
+  failed_when: false

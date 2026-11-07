@@ -1,0 +1,27 @@
+# {{ ansible_managed }}
+name: vps-harden-logging
+
+services:
+  loki:
+    image: {{ logging_loki_image }}
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "127.0.0.1:{{ logging_loki_port }}:3100"
+
+  promtail:
+    image: {{ logging_promtail_image }}
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/config.yml"]
+    volumes:
+      - ./promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/log:/var/log:ro
+      - /run/log/journal:/run/log/journal:ro
+    depends_on:
+      - loki
+
+volumes:
+  loki-data:

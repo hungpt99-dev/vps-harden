@@ -1,0 +1,6 @@
+---
+- name: Render the monitoring stack
+  ansible.builtin.import_tasks: configure.yml
+  when:
+    - monitoring_enabled | bool
+    - vh_phase | default('all') in ['install', 'all', 'configure']

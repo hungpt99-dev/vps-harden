@@ -1,0 +1,19 @@
+---
+# Kept in vars (not defaults) so operators must edit the role to change modes.
+common_sensitive_files:
+  - path: /etc/ssh/sshd_config
+    mode: "0600"
+  - path: /etc/shadow
+    mode: "0640"
+    group: shadow
+  - path: /etc/gshadow
+    mode: "0640"
+    group: shadow
+  - path: /etc/passwd
+    mode: "0644"
+  - path: /etc/group
+    mode: "0644"
+  - path: /etc/crontab
+    mode: "0600"
+  - path: /root
+    mode: "0700"

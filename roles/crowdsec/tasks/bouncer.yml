@@ -1,0 +1,94 @@
+---
+# Optional enforcement. Read this before enabling it:
+#   * Fail2ban already bans SSH offenders on this stack. Two enforcement points
+#     for the same traffic make incident response ambiguous; enable the bouncer
+#     only if you consolidate on CrowdSec and disable the fail2ban SSH jail.
+#   * The tailnet ranges are whitelisted by postoverflow before enforcement, so
+#     a local decision cannot cut your admin path.
+#   * The API key is printed exactly once. It is written straight into the
+#     bouncer config; if that file is lost the bouncer must be re-registered.
+
+- name: Read the registered bouncers
+  ansible.builtin.command:
+    argv: [cscli, bouncers, list, -o, json]
+  register: crowdsec_bouncers
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Collect bouncer names
+  ansible.builtin.set_fact:
+    crowdsec_bouncer_names: "{{ (crowdsec_bouncers.stdout | from_json | default([])) | map(attribute='name') | list }}"
+
+- name: Refuse to add a second enforcement point
+  ansible.builtin.fail:
+    msg: >-
+      CrowdSec already has bouncer(s) registered:
+      {{ crowdsec_bouncer_names | join(', ') }}. Installing another firewall
+      bouncer would give this host two enforcement points. Set
+      crowdsec.bouncer_conflict_policy=ignore to manage the existing one, or
+      remove it first (cscli bouncers delete <name>).
+  when:
+    - crowdsec_bouncer_names | length > 0
+    - crowdsec_bouncer_conflict_policy == 'fail'
+
+- name: Install the firewall bouncer package
+  ansible.builtin.apt:
+    name: "{{ crowdsec_bouncer_package }}"
+    state: present
+    install_recommends: false
+  when: crowdsec_bouncer_names | length == 0
+
+- name: Check for an existing bouncer configuration
+  ansible.builtin.stat:
+    path: /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml
+  register: crowdsec_bouncer_conf
+  check_mode: false
+
+- name: Register the bouncer and obtain its API key
+  ansible.builtin.command:
+    argv: [cscli, bouncers, add, "{{ crowdsec_bouncer_name }}", -o, raw]
+  register: crowdsec_bouncer_key
+  changed_when: true
+  no_log: true
+  when: not crowdsec_bouncer_conf.stat.exists
+
+- name: Deploy the bouncer configuration
+  ansible.builtin.template:
+    src: bouncer.yaml.j2
+    dest: /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  vars:
+    crowdsec_bouncer_api_key: "{{ crowdsec_bouncer_key.stdout | default('') | trim }}"
+  when: not crowdsec_bouncer_conf.stat.exists
+  no_log: true
+
+- name: Enable and start the firewall bouncer
+  ansible.builtin.systemd:
+    name: crowdsec-firewall-bouncer
+    enabled: true
+    state: restarted
+
+- name: Verify the bouncer registered with the Local API
+  ansible.builtin.command:
+    argv: [cscli, bouncers, list, -o, json]
+  register: crowdsec_bouncers_after
+  changed_when: false
+  failed_when: false
+  retries: 5
+  delay: 3
+  until: crowdsec_bouncers_after.stdout is search(crowdsec_bouncer_name)
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Fail when the bouncer never registered
+  ansible.builtin.fail:
+    msg: >-
+      The bouncer is running but has not authenticated to the Local API.
+      Check `journalctl -u crowdsec-firewall-bouncer -n 50`; a lost API key
+      cannot be recovered — delete the bouncer and re-run configure.
+  when:
+    - not ansible_check_mode
+    - crowdsec_bouncers_after.stdout is not search(crowdsec_bouncer_name)

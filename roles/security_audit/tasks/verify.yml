@@ -1,0 +1,162 @@
+---
+# Post-change verification: the controls must be observed in effect, not merely
+# configured. Fails the run (and the CLI exits non-zero) on the first gap.
+
+- name: Ensure the SSH privilege separation directory exists
+  ansible.builtin.file:
+    path: /run/sshd
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: ssh_hardening_enabled | default(true) | bool
+
+- name: Read the effective SSH configuration
+  ansible.builtin.command:
+    argv: [/usr/sbin/sshd, -T]
+  register: verify_sshd
+  changed_when: false
+  check_mode: false
+  when: ssh_hardening_enabled | default(true) | bool
+
+- name: Verify SSH password authentication is disabled
+  ansible.builtin.assert:
+    that:
+      - "'passwordauthentication no' in verify_sshd.stdout"
+    fail_msg: >-
+      PasswordAuthentication is still enabled. Another drop-in is winning;
+      check `sshd -T | grep passwordauthentication`.
+    quiet: true
+  when:
+    - ssh_hardening_enabled | default(true) | bool
+    - not (ssh_password_authentication | default(false) | bool)
+
+- name: Verify root login is disabled
+  ansible.builtin.assert:
+    that:
+      - "'permitrootlogin no' in verify_sshd.stdout"
+    fail_msg: >-
+      PermitRootLogin is not "no" ({{ verify_sshd.stdout_lines | select('search', 'permitrootlogin') | first | default('unset') }}).
+    quiet: true
+  when:
+    - ssh_hardening_enabled | default(true) | bool
+    - ssh_permit_root_login is sameas false
+
+- name: Read the firewall state
+  ansible.builtin.command:
+    argv: [ufw, status, verbose]
+  register: verify_ufw
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: ufw_enabled | default(true) | bool
+
+- name: Verify the firewall is active and allows SSH
+  ansible.builtin.assert:
+    that:
+      - "'Status: active' in verify_ufw.stdout"
+      - "('port ' ~ (ssh_port | default(22) | string)) in verify_ufw.stdout or ((ssh_port | default(22) | string) ~ '/tcp') in verify_ufw.stdout"
+    fail_msg: >-
+      UFW is not active with an SSH allow rule. Output:
+      {{ verify_ufw.stdout | default('') }}
+    quiet: true
+  when: ufw_enabled | default(true) | bool
+
+- name: Read the fail2ban jails
+  ansible.builtin.command:
+    argv: [fail2ban-client, status]
+  register: verify_fail2ban
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: fail2ban_enabled | default(true) | bool
+
+- name: Verify the fail2ban SSH jail is active
+  ansible.builtin.assert:
+    that:
+      - "'sshd' in verify_fail2ban.stdout"
+    fail_msg: >-
+      Fail2ban does not report an active sshd jail:
+      {{ verify_fail2ban.stdout | default('') }} {{ verify_fail2ban.stderr | default('') }}
+    quiet: true
+  when: fail2ban_enabled | default(true) | bool
+
+- name: Query the CrowdSec Local API
+  ansible.builtin.command:
+    argv: [cscli, lapi, status]
+  register: verify_crowdsec
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: crowdsec_enabled | default(true) | bool
+
+- name: Verify the CrowdSec Local API answers
+  ansible.builtin.assert:
+    that:
+      - verify_crowdsec.rc | default(1) == 0
+    fail_msg: >-
+      CrowdSec is installed but its Local API is unreachable:
+      {{ verify_crowdsec.stderr | default('') | trim }}
+    quiet: true
+  when: crowdsec_enabled | default(true) | bool
+
+- name: Read the automatic upgrade setting
+  ansible.builtin.command:
+    argv: [apt-config, dump, "APT::Periodic::Unattended-Upgrade"]
+  register: verify_unattended
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: unattended_upgrades_enabled | default(true) | bool
+
+- name: Verify automatic security updates are enabled
+  ansible.builtin.assert:
+    that:
+      - "'\"1\"' in verify_unattended.stdout"
+    fail_msg: >-
+      APT::Periodic::Unattended-Upgrade is not "1"
+      ({{ verify_unattended.stdout | default('unset') }}).
+    quiet: true
+  when: unattended_upgrades_enabled | default(true) | bool
+
+- name: Read the Docker daemon state
+  ansible.builtin.command:
+    argv: [docker, info]
+  register: verify_docker
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: docker_enabled | default(false) | bool
+
+- name: Verify Docker answers
+  ansible.builtin.assert:
+    that:
+      - verify_docker.rc | default(1) == 0
+    fail_msg: "Docker is not answering: {{ verify_docker.stderr | default('') | trim }}"
+    quiet: true
+  when: docker_enabled | default(false) | bool
+
+- name: Read the Tailscale state
+  ansible.builtin.command:
+    argv: [tailscale, status, --json]
+  register: verify_tailscale
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: tailscale_enabled | default(false) | bool
+
+- name: Verify the node is connected to the tailnet
+  ansible.builtin.assert:
+    that:
+      - "(verify_tailscale.stdout | from_json).BackendState == 'Running'"
+    fail_msg: >-
+      Tailscale backend state is not Running. Authenticate with `sudo tailscale up`.
+    quiet: true
+  when: tailscale_enabled | default(false) | bool
+
+- name: Report verification success
+  ansible.builtin.debug:
+    msg: >-
+      All enabled controls are in effect. Reminder: this proves the controls
+      above, not that the host is "secure" — run `install.sh audit` for the
+      full posture report.

@@ -1,0 +1,5 @@
+---
+audit_reports_dir: /var/lib/vps-harden/reports
+audit_fail_on: fail
+audit_include_docker: true
+audit_retention_days: 30

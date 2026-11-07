@@ -1,0 +1,215 @@
+---
+# Order matters. Every assertion below runs before the first write, and the
+# final verification proves the values are effective (not merely present) —
+# sshd resolves duplicate directives with "first value wins".
+
+- name: Ensure the SSH privilege separation directory exists
+  ansible.builtin.file:
+    path: /run/sshd
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Validate the current SSH configuration before touching it
+  ansible.builtin.command:
+    argv: [/usr/sbin/sshd, -t]
+  register: ssh_precheck
+  changed_when: false
+  check_mode: false
+
+- name: Fail when the existing SSH configuration is already invalid
+  ansible.builtin.fail:
+    msg: >-
+      /etc/ssh/sshd_config is already invalid: {{ ssh_precheck.stderr | trim }}.
+      Fix it first; vps-harden will not stack changes on a broken configuration.
+  when: ssh_precheck.rc != 0
+
+- name: Read the effective SSH configuration
+  ansible.builtin.command:
+    argv: [/usr/sbin/sshd, -T]
+  register: ssh_effective_before
+  changed_when: false
+  check_mode: false
+
+- name: Parse the effective SSH configuration
+  ansible.builtin.set_fact:
+    ssh_before: "{{ dict(ssh_effective_before.stdout | regex_findall('(?m)^(\\S+) (.+)$')) }}"
+
+- name: Find drop-in files in {{ ssh_dropin_dir }}
+  ansible.builtin.find:
+    paths: "{{ ssh_dropin_dir }}"
+    patterns: "*.conf"
+    file_type: file
+  register: ssh_dropin_files
+
+- name: Find authorized_keys files for administrators
+  ansible.builtin.find:
+    paths:
+      - /root/.ssh
+      - /home
+    patterns: authorized_keys
+    recurse: true
+    file_type: file
+  register: ssh_key_files
+
+- name: Read authorized_keys files
+  ansible.builtin.slurp:
+    src: "{{ item.path }}"
+  loop: "{{ ssh_key_files.files }}"
+  register: ssh_key_contents
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Count usable public keys
+  ansible.builtin.set_fact:
+    ssh_valid_keys: >-
+      {{ ssh_key_contents.results | default([])
+         | selectattr('content', 'defined')
+         | map(attribute='content') | map('b64decode')
+         | select('search', '(?m)^(ssh|ecdsa|sk)-') | list }}
+    ssh_nonroot_key_count: >-
+      {{ ssh_key_contents.results | default([])
+         | selectattr('source', 'defined')
+         | selectattr('source', 'match', '^/home/')
+         | map(attribute='content') | map('b64decode')
+         | select('search', '(?m)^(ssh|ecdsa|sk)-') | list | length }}
+
+- name: Refuse to disable password authentication without a verified key
+  ansible.builtin.fail:
+    msg: >-
+      ssh.password_authentication=false but no public key was found in
+      /root/.ssh/authorized_keys or /home/*/.ssh/authorized_keys.
+      You would lock yourself out. Add your key first, or set
+      ssh.allow_no_keys=true if this host is reachable only through a console.
+  when:
+    - not (ssh_password_authentication | bool)
+    - ssh_valid_keys | length == 0
+    - not (ssh_allow_no_keys | bool)
+
+- name: Refuse to disable root login when root is the only account with a key
+  ansible.builtin.fail:
+    msg: >-
+      ssh.permit_root_login=false would remove the only working access path:
+      root has {{ ssh_valid_keys | length }} key(s) and no /home user does.
+      Add a key for a sudo user first ({{ ansible_user_id }} or another admin).
+  when:
+    - ssh_permit_root_login is sameas false
+    - ssh_nonroot_key_count | int == 0
+    - ssh_valid_keys | length > 0
+
+- name: Detect drop-ins that set directives owned by this role
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -lE
+      - ^[[:space:]]*(PasswordAuthentication|PermitRootLogin|PubkeyAuthentication|KbdInteractiveAuthentication|MaxAuthTries|AllowUsers|AllowGroups)[[:space:]]
+      - "{{ item.path }}"
+  loop: "{{ ssh_dropin_files.files }}"
+  register: ssh_conflict_probe
+  changed_when: false
+  failed_when: false
+  when: item.path is not search('00-vps-harden')
+
+- name: Collect conflicting drop-ins
+  ansible.builtin.set_fact:
+    ssh_conflicting_dropins: "{{ ssh_conflict_probe.results | default([]) | selectattr('rc', 'defined') | selectattr('rc', 'eq', 0) | map(attribute='item.path') | list }}"
+
+- name: Fail on conflicting SSH drop-ins when the policy requires it
+  ansible.builtin.fail:
+    msg: >-
+      These drop-ins set the same directives as vps-harden:
+      {{ ssh_conflicting_dropins | join(', ') }}.
+      vps-harden's 00- file wins (sshd uses the first value), but duplicated
+      ownership is confusing. Remove or rename them, or set
+      ssh.conflict_policy=warn to proceed deliberately.
+  when:
+    - ssh_conflicting_dropins | length > 0
+    - ssh_conflict_policy == 'fail'
+
+- name: Warn about overlapping SSH drop-ins
+  ansible.builtin.debug:
+    msg: >-
+      Overlapping SSH drop-ins detected ({{ ssh_conflicting_dropins | join(', ') }}).
+      vps-harden's 00-{{ 'vps-hardening' }}.conf is read first and takes
+      precedence; the effective configuration is verified after applying.
+  when: ssh_conflicting_dropins | length > 0
+
+- name: Read the main SSH configuration
+  ansible.builtin.slurp:
+    src: /etc/ssh/sshd_config
+  register: ssh_main_config
+
+- name: Ensure sshd_config includes the drop-in directory
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^Include\s+/etc/ssh/sshd_config\.d/\*\.conf\s*$'
+    line: "Include /etc/ssh/sshd_config.d/*.conf"
+    insertbefore: BOF
+  when:
+    - ssh_manage_main_include | bool
+    - "'/etc/ssh/sshd_config.d/' not in (ssh_main_config.content | b64decode)"
+  notify: Reload ssh
+
+- name: Deploy the SSH hardening drop-in
+  ansible.builtin.template:
+    src: sshd_config.conf.j2
+    dest: "{{ ssh_dropin_dir }}/{{ ssh_dropin_name }}"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+    validate: "{{ playbook_dir }}/../scripts/sshd-validate.sh %s"
+  notify: Reload ssh
+
+- name: Apply the SSH configuration now
+  ansible.builtin.meta: flush_handlers
+
+- name: Read the effective configuration after applying
+  ansible.builtin.command:
+    argv: [/usr/sbin/sshd, -T]
+  register: ssh_effective_after
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Parse the effective configuration after applying
+  ansible.builtin.set_fact:
+    ssh_after: "{{ dict(ssh_effective_after.stdout | regex_findall('(?m)^(\\S+) (.+)$')) }}"
+  when: not ansible_check_mode
+
+- name: Define the settings that must be effective
+  ansible.builtin.set_fact:
+    ssh_desired_settings:
+      passwordauthentication: "{{ 'yes' if ssh_password_authentication | bool else 'no' }}"
+      pubkeyauthentication: "{{ 'yes' if ssh_pubkey_authentication | bool else 'no' }}"
+      permitrootlogin: >-
+        {{ 'yes' if ssh_permit_root_login is sameas true
+           else ('no' if ssh_permit_root_login is sameas false
+                 else ssh_permit_root_login) }}
+      kbdinteractiveauthentication: "{{ 'yes' if ssh_kbd_interactive_authentication | bool else 'no' }}"
+      maxauthtries: "{{ ssh_max_auth_tries }}"
+      port: "{{ ssh_port }}"
+
+- name: Verify that the configured values are actually in effect
+  ansible.builtin.assert:
+    that:
+      - ssh_after[item.key] | default('') | lower == item.value | string | lower
+    fail_msg: >-
+      {{ item.key }} is {{ ssh_after[item.key] | default('unset') }} after reload,
+      expected {{ item.value }}. Another configuration file is overriding
+      vps-harden. Check /etc/ssh/sshd_config and {{ ssh_dropin_dir }}.
+    quiet: true
+  loop: "{{ ssh_desired_settings | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: not ansible_check_mode
+
+- name: Report an SSH port change
+  ansible.builtin.debug:
+    msg: >-
+      SSH now listens on port {{ ssh_port }} (was {{ ssh_before['port'] | default('22') }}).
+      The firewall and fail2ban are configured with the same port in this run;
+      open a new session to verify before closing this one.
+  when:
+    - ssh_before['port'] | default('22') | string != ssh_port | string

@@ -1,0 +1,21 @@
+---
+fail2ban_enabled: true
+fail2ban_backend: systemd
+fail2ban_maxretry: 5
+fail2ban_findtime: 10m
+fail2ban_bantime: 1h
+fail2ban_bantime_increment: true
+fail2ban_bantime_factor: 2
+fail2ban_bantime_maxtime: 4w
+fail2ban_ignoreip: []
+fail2ban_jail_name: sshd
+fail2ban_ssh_port: "{{ ssh_port | default(22) }}"
+# nftables writes to its own table (inet f2b-table) and never touches UFW's
+# chains or DOCKER-USER. iptables-multiport also works but shares the filter
+# table with UFW; nftables keeps the two enforcement layers separable.
+fail2ban_banaction: nftables
+fail2ban_manage_service: true
+
+# Overlap policy for other files under /etc/fail2ban/jail.d that configure
+# [sshd]: fail (default), adopt (rename to *.pre-vps-harden.bak), ignore.
+fail2ban_conflict_policy: fail

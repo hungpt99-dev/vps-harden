@@ -1,0 +1,13 @@
+# vps-harden inventory
+#
+# The toolkit manages the machine it runs on ("localhost"), which is the normal
+# model for a single-VPS homelab. Running it against a remote fleet is possible
+# but out of scope for v1.0: the audit/firewall guarantees are written for the
+# host the playbook executes on.
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+      ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  vars:
+    ansible_host: 127.0.0.1

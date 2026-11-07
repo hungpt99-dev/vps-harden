@@ -1,0 +1,12 @@
+---
+- name: Provision the report directory
+  ansible.builtin.import_tasks: install.yml
+  when: vh_phase | default('all') in ['install', 'all', 'configure']
+
+- name: Audit the host
+  ansible.builtin.import_tasks: audit.yml
+  when: vh_phase | default('all') == 'audit'
+
+- name: Verify the installed controls
+  ansible.builtin.import_tasks: verify.yml
+  when: vh_phase | default('all') == 'verify'

@@ -1,0 +1,50 @@
+---
+# Load the effective configuration: built-in defaults <- user file <- derived
+# values that must never be forgotten (the SSH allow rule above all).
+- name: Locate the user configuration file
+  ansible.builtin.stat:
+    path: "{{ vps_harden_config_file }}"
+  register: vh_config_stat
+
+- name: Load built-in defaults
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/../config/defaults.yml"
+    name: vh_defaults
+
+- name: Load user configuration
+  ansible.builtin.include_vars:
+    file: "{{ vps_harden_config_file }}"
+    name: vh_user
+  when: vh_config_stat.stat.exists
+
+- name: Merge user configuration over defaults
+  ansible.builtin.set_fact:
+    vps_harden: "{{ vh_defaults.vps_harden | combine(vh_user.vps_harden | default({}), recursive=True) }}"
+
+# Firewall rules are derived, not typed by the user: forgetting the SSH rule is
+# the classic way to lock yourself out of a VPS.
+- name: Start the derived rule list
+  ansible.builtin.set_fact:
+    vh_derived_rules: []
+
+- name: Allow the configured SSH port
+  ansible.builtin.set_fact:
+    vh_derived_rules: >-
+      {{ vh_derived_rules + [{'rule': 'allow', 'port': vps_harden.ssh.port | string,
+                              'proto': 'tcp', 'comment': 'SSH (vps-harden)'}] }}
+  when: vps_harden.ufw.auto_allow_ssh | bool
+
+- name: Allow the Tailscale interface
+  ansible.builtin.set_fact:
+    vh_derived_rules: >-
+      {{ vh_derived_rules + [{'rule': 'allow', 'interface': 'tailscale0',
+                              'comment': 'Tailnet admin access (vps-harden)'}] }}
+  when: vps_harden.ufw.allow_tailscale | bool
+
+- name: Append user-defined rules
+  ansible.builtin.set_fact:
+    vh_derived_rules: "{{ vh_derived_rules + vps_harden.ufw.extra_rules }}"
+
+- name: Publish derived firewall rules
+  ansible.builtin.set_fact:
+    vps_harden: "{{ vps_harden | combine({'ufw': {'rules': vh_derived_rules}}, recursive=True) }}"

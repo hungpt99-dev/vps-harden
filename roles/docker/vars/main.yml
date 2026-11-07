@@ -1,0 +1,10 @@
+---
+# Keys vps-harden adds. Existing values in /etc/docker/daemon.json win, so a
+# hand-tuned daemon is never silently rewritten.
+docker_daemon_managed:
+  log-driver: json-file
+  log-opts:
+    max-size: "{{ docker_log_max_size }}"
+    max-file: "{{ docker_log_max_file }}"
+  live-restore: "{{ docker_live_restore | bool }}"
+  no-new-privileges: "{{ docker_no_new_privileges | bool }}"

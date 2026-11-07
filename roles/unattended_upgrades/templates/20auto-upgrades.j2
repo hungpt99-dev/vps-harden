@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Download-Upgradeable-Packages "1";
+APT::Periodic::AutocleanInterval "{{ unattended_autoclean_interval }}";
+APT::Periodic::Unattended-Upgrade "1";

@@ -1,0 +1,6 @@
+---
+# Molecule's docker driver is implemented with community.docker. The roles
+# themselves use ansible-core only; this collection is a test-time dependency.
+collections:
+  - name: community.docker
+    version: ">=3.4.0"

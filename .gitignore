@@ -1,0 +1,25 @@
+# --- Ansible / local artifacts ---------------------------------------------
+*.retry
+.ansible/
+.cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# --- Local user configuration (may contain admin IPs, never commit) --------
+config/vps-harden.yml
+config/*.local.yml
+!config/example.yml
+!config/defaults.yml
+
+# --- Backups / reports produced on a host ----------------------------------
+reports/*
+!reports/.gitkeep
+*.bak
+*.orig
+
+# --- Editors / OS ----------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+*.swp

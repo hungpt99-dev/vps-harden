@@ -1,0 +1,12 @@
+---
+- name: Install CrowdSec
+  ansible.builtin.import_tasks: install.yml
+  when:
+    - crowdsec_enabled | bool
+    - vh_phase | default('all') in ['install', 'all']
+
+- name: Configure CrowdSec
+  ansible.builtin.import_tasks: configure.yml
+  when:
+    - crowdsec_enabled | bool
+    - vh_phase | default('all') in ['configure', 'all']

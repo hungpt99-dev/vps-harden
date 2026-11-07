@@ -1,0 +1,95 @@
+---
+# Remove vps-harden's own configuration. Packages and user data are kept unless
+# explicitly purged; services are restored to distribution defaults where we
+# cannot know the original.
+#
+# Safety contract:
+#   * only files listed in config/managed_paths.yml are touched
+#   * every file is snapshotted first (scripts/backup.sh)
+#   * the play refuses to run without vh_uninstall_confirm=true
+- name: Uninstall vps-harden configuration
+  hosts: localhost
+  gather_facts: true
+  vars:
+    vh_phase: uninstall
+    vh_uninstall_confirm: false
+    vh_uninstall_purge: false
+  pre_tasks:
+    - name: Load configuration
+      ansible.builtin.import_tasks: tasks/load_config.yml
+      tags: [always]
+    - name: Pre-flight checks
+      ansible.builtin.import_tasks: tasks/preflight.yml
+      tags: [always]
+    - name: Require explicit confirmation
+      ansible.builtin.assert:
+        that:
+          - vh_uninstall_confirm | bool
+        fail_msg: >-
+          Uninstall modifies system configuration. Re-run with
+          "sudo ./install.sh uninstall --yes".
+        quiet: true
+    - name: Load the managed path inventory
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../config/managed_paths.yml"
+        name: vh_managed
+    - name: Snapshot before uninstalling
+      ansible.builtin.import_tasks: tasks/snapshot.yml
+      tags: [always]
+  tasks:
+    - name: Stop vps-harden managed timers
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop: "{{ vh_managed.units }}"
+      failed_when: false
+
+    - name: Remove vps-harden owned configuration files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ vh_managed.owned_files }}"
+
+    - name: Validate SSH configuration after removing our drop-in
+      ansible.builtin.command:
+        argv: [/usr/sbin/sshd, -t]
+      register: vh_uninstall_sshd
+      changed_when: false
+      failed_when: false
+
+    - name: Reload SSH only when the remaining configuration is valid
+      ansible.builtin.systemd:
+        name: ssh
+        state: reloaded
+      when:
+        - vh_uninstall_sshd.rc == 0
+        - "'sshd_config.d/00-vps-harden.conf' in vh_managed.owned_files"
+
+    - name: Warn when SSH configuration is broken after uninstall
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: sshd -t failed after removing our drop-in
+          ({{ vh_uninstall_sshd.stderr | default('') }}). SSH was NOT reloaded.
+          Fix /etc/ssh/sshd_config.d before logging out.
+
+    - name: Reload firewall when the Docker chain block was removed
+      ansible.builtin.command:
+        argv: [ufw, reload]
+      changed_when: false
+      failed_when: false
+      when: "'/etc/ufw/after.rules' in vh_managed.modified_files"
+
+    - name: Remove vps-harden packages when purging was requested
+      ansible.builtin.apt:
+        name: "{{ vh_managed.packages }}"
+        state: absent
+        purge: true
+      when: vh_uninstall_purge | bool
+
+    - name: Report what was kept
+      ansible.builtin.debug:
+        msg: >-
+          Configuration removed. Packages, backups under {{ vps_harden.backup_dir }}
+          and audit reports were kept. Purge packages with --purge,
+          restore configuration with "sudo ./install.sh rollback".

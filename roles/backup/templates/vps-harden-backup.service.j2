@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+[Unit]
+Description=vps-harden scheduled backup (restic)
+Documentation=https://github.com/hungpt99-dev/vps-harden
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart={{ backup_script }}
+Nice=10
+IOSchedulingClass=idle
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths={{ backup_local_repo }} {{ backup_password_file | dirname }}

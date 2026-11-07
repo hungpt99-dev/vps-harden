@@ -1,0 +1,19 @@
+---
+# Post-change verification: are the configured controls actually in effect?
+# Fails (non-zero) when a required control is missing, so it can gate CI or a
+# deployment pipeline.
+- name: Verify installed security controls
+  hosts: localhost
+  gather_facts: true
+  vars:
+    vh_phase: verify
+  pre_tasks:
+    - name: Load configuration
+      ansible.builtin.import_tasks: tasks/load_config.yml
+      tags: [always]
+    - name: Pre-flight checks
+      ansible.builtin.import_tasks: tasks/preflight.yml
+      tags: [always]
+  roles:
+    - role: security_audit
+      tags: [verify]

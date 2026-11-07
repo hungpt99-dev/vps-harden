@@ -1,0 +1,13 @@
+---
+hermes_enabled: false
+hermes_register_mcp: false
+hermes_gateway_service: hermes-gateway.service
+
+# vps-harden never runs an unknown installer by default. Set both variables to
+# install Hermes through its upstream script; review that script first.
+hermes_install: false
+hermes_installer_url: ""
+hermes_installer_sha256: ""
+
+hermes_mcp_path: /usr/local/lib/vps-harden/vps_harden_mcp.py
+hermes_skill_path: /etc/vps-harden/hermes-skill/SKILL.md

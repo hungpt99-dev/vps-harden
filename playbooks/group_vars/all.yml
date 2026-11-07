@@ -1,0 +1,129 @@
+# vps-harden — variable mapping layer
+#
+# ONE responsibility: translate the user-facing schema (config/defaults.yml,
+# merged with config/vps-harden.yml by playbooks/tasks/load_config.yml) into the
+# namespaced variables each role consumes.
+#
+# Roles keep their own defaults so they remain usable standalone (Molecule,
+# role consumers). tests/unit/test_config_contract.py asserts this mapping
+# stays in sync with both sides.
+---
+# Populated by playbooks/tasks/load_config.yml before any role runs.
+vps_harden: {}
+
+# Where the user's configuration lives. `install.sh --config FILE` overrides it.
+vps_harden_config_file: "{{ playbook_dir }}/../config/vps-harden.yml"
+
+# --------------------------------------------------------------------- common
+common_timezone: "{{ vps_harden.timezone }}"
+common_log_dir: "{{ vps_harden.log_dir }}"
+
+# ------------------------------------------------------------------------ ssh
+ssh_hardening_enabled: "{{ vps_harden.ssh.enabled }}"
+ssh_port: "{{ vps_harden.ssh.port }}"
+ssh_permit_root_login: "{{ vps_harden.ssh.permit_root_login }}"
+ssh_password_authentication: "{{ vps_harden.ssh.password_authentication }}"
+ssh_pubkey_authentication: "{{ vps_harden.ssh.pubkey_authentication }}"
+ssh_kbd_interactive_authentication: "{{ vps_harden.ssh.kbd_interactive_authentication }}"
+ssh_max_auth_tries: "{{ vps_harden.ssh.max_auth_tries }}"
+ssh_login_grace_time: "{{ vps_harden.ssh.login_grace_time }}"
+ssh_client_alive_interval: "{{ vps_harden.ssh.client_alive_interval }}"
+ssh_client_alive_count_max: "{{ vps_harden.ssh.client_alive_count_max }}"
+ssh_x11_forwarding: "{{ vps_harden.ssh.x11_forwarding }}"
+ssh_allow_tcp_forwarding: "{{ vps_harden.ssh.allow_tcp_forwarding }}"
+ssh_allow_users: "{{ vps_harden.ssh.allow_users }}"
+ssh_allow_groups: "{{ vps_harden.ssh.allow_groups }}"
+ssh_admin_users: "{{ vps_harden.ssh.admin_users }}"
+ssh_allow_no_keys: "{{ vps_harden.ssh.allow_no_keys }}"
+
+# ------------------------------------------------------------------------ ufw
+ufw_enabled: "{{ vps_harden.ufw.enabled }}"
+ufw_default_incoming_policy: "{{ vps_harden.ufw.default_incoming }}"
+ufw_default_outgoing_policy: "{{ vps_harden.ufw.default_outgoing }}"
+ufw_default_routed_policy: "{{ vps_harden.ufw.default_routed }}"
+ufw_logging: "{{ vps_harden.ufw.logging }}"
+ufw_ipv6: "{{ vps_harden.ufw.ipv6 }}"
+ufw_rules: "{{ vps_harden.ufw.rules | default([]) }}"
+ufw_deadman_minutes: "{{ vps_harden.ufw.deadman_minutes }}"
+ufw_manage_docker_user_chain: "{{ vps_harden.ufw.manage_docker_user_chain }}"
+ufw_docker_allowed_ports: "{{ vps_harden.ufw.docker_allowed_ports }}"
+
+# ------------------------------------------------------------------- fail2ban
+fail2ban_enabled: "{{ vps_harden.fail2ban.enabled }}"
+fail2ban_backend: "{{ vps_harden.fail2ban.backend }}"
+fail2ban_maxretry: "{{ vps_harden.fail2ban.maxretry }}"
+fail2ban_findtime: "{{ vps_harden.fail2ban.findtime }}"
+fail2ban_bantime: "{{ vps_harden.fail2ban.bantime }}"
+fail2ban_bantime_increment: "{{ vps_harden.fail2ban.bantime_increment }}"
+fail2ban_bantime_factor: "{{ vps_harden.fail2ban.bantime_factor }}"
+fail2ban_bantime_maxtime: "{{ vps_harden.fail2ban.bantime_maxtime }}"
+fail2ban_ignoreip: "{{ vps_harden.fail2ban.ignoreip }}"
+fail2ban_conflict_policy: "{{ vps_harden.fail2ban.conflict_policy }}"
+
+# ------------------------------------------------------------------- crowdsec
+crowdsec_enabled: "{{ vps_harden.crowdsec.enabled }}"
+crowdsec_manage_repo: "{{ vps_harden.crowdsec.manage_repo }}"
+crowdsec_collections: "{{ vps_harden.crowdsec.collections }}"
+crowdsec_acquisition: "{{ vps_harden.crowdsec.acquisition }}"
+crowdsec_lapi_port: "{{ vps_harden.crowdsec.lapi_port }}"
+crowdsec_manage_lapi_port: "{{ vps_harden.crowdsec.manage_lapi_port }}"
+crowdsec_firewall_bouncer_enabled: "{{ vps_harden.crowdsec.firewall_bouncer_enabled }}"
+crowdsec_bouncer_conflict_policy: "{{ vps_harden.crowdsec.bouncer_conflict_policy }}"
+crowdsec_whitelist_tailnet: "{{ vps_harden.crowdsec.whitelist_tailnet }}"
+
+# --------------------------------------------------------- unattended upgrades
+unattended_upgrades_enabled: "{{ vps_harden.unattended_upgrades.enabled }}"
+unattended_automatic_reboot: "{{ vps_harden.unattended_upgrades.automatic_reboot }}"
+unattended_reboot_time: "{{ vps_harden.unattended_upgrades.reboot_time }}"
+unattended_remove_unused: "{{ vps_harden.unattended_upgrades.remove_unused_dependencies }}"
+unattended_email: "{{ vps_harden.unattended_upgrades.email }}"
+unattended_origins: "{{ vps_harden.unattended_upgrades.origins }}"
+
+# ------------------------------------------------------------------- tailscale
+tailscale_enabled: "{{ vps_harden.tailscale.enabled }}"
+tailscale_manage_repo: "{{ vps_harden.tailscale.manage_repo }}"
+tailscale_ssh: "{{ vps_harden.tailscale.ssh }}"
+tailscale_accept_routes: "{{ vps_harden.tailscale.accept_routes }}"
+tailscale_advertise_exit_node: "{{ vps_harden.tailscale.advertise_exit_node }}"
+
+# ---------------------------------------------------------------------- docker
+docker_enabled: "{{ vps_harden.docker.enabled }}"
+docker_manage_repo: "{{ vps_harden.docker.manage_repo }}"
+docker_log_max_size: "{{ vps_harden.docker.log_max_size }}"
+docker_log_max_file: "{{ vps_harden.docker.log_max_file }}"
+docker_live_restore: "{{ vps_harden.docker.live_restore }}"
+docker_no_new_privileges: "{{ vps_harden.docker.no_new_privileges }}"
+
+# ---------------------------------------------------------------------- hermes
+hermes_enabled: "{{ vps_harden.hermes.enabled }}"
+hermes_register_mcp: "{{ vps_harden.hermes.register_mcp }}"
+hermes_gateway_service: "{{ vps_harden.hermes.gateway_service }}"
+
+# ------------------------------------------------------------------ monitoring
+monitoring_enabled: "{{ vps_harden.monitoring.enabled }}"
+monitoring_bind_address: "{{ vps_harden.monitoring.bind_address }}"
+monitoring_grafana_port: "{{ vps_harden.monitoring.grafana_port }}"
+monitoring_prometheus_port: "{{ vps_harden.monitoring.prometheus_port }}"
+
+# --------------------------------------------------------------------- logging
+logging_enabled: "{{ vps_harden.logging.enabled }}"
+logging_manage_journald: "{{ vps_harden.logging.manage_journald }}"
+logging_journald_max_use: "{{ vps_harden.logging.journald_max_use }}"
+logging_journald_retention: "{{ vps_harden.logging.journald_retention }}"
+logging_loki_enabled: "{{ vps_harden.logging.loki_enabled }}"
+logging_loki_port: "{{ vps_harden.logging.loki_port }}"
+
+# ---------------------------------------------------------------------- backup
+backup_enabled: "{{ vps_harden.backup.enabled }}"
+backup_schedule: "{{ vps_harden.backup.schedule }}"
+backup_local_repo: "{{ vps_harden.backup.local_repo }}"
+backup_paths: "{{ vps_harden.backup.paths }}"
+backup_exclude: "{{ vps_harden.backup.exclude }}"
+backup_keep_daily: "{{ vps_harden.backup.keep_daily }}"
+backup_keep_weekly: "{{ vps_harden.backup.keep_weekly }}"
+backup_keep_monthly: "{{ vps_harden.backup.keep_monthly }}"
+
+# ----------------------------------------------------------------------- audit
+audit_fail_on: "{{ vps_harden.audit.fail_on }}"
+audit_include_docker: "{{ vps_harden.audit.include_docker }}"
+audit_reports_dir: "{{ vps_harden.reports_dir }}"

@@ -1,0 +1,29 @@
+# {{ ansible_managed }}
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: varlogs
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: varlogs
+          host: "{{ inventory_hostname }}"
+          __path__: /var/log/*.log
+
+  # Authentication logs are the ones that matter for SSH investigation. This is
+  # file-based on purpose: the journal socket is not mounted into the container.
+  - job_name: auth
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: auth
+          host: "{{ inventory_hostname }}"
+          __path__: /var/log/auth.log

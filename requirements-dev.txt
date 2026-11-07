@@ -1,0 +1,15 @@
+# Development dependencies
+#
+# Runtime dependencies are handled by scripts/bootstrap.sh (apt or a private
+# venv). These are the extra tools needed to run the test suite and the linters.
+ansible-core==2.17.14
+ansible-lint==26.6.0
+molecule==25.11.0
+molecule-plugins[docker]==25.8.12
+pytest==8.3.4
+# Molecule's docker driver is implemented with community.docker; the roles
+# themselves use ansible-core only.
+#   ansible-galaxy collection install community.docker
+# Bats is not a Python package:
+#   git clone --depth 1 https://github.com/bats-core/bats-core /tmp/bats-core
+#   sudo /tmp/bats-core/install.sh /usr/local

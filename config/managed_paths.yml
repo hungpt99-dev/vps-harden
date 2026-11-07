@@ -1,0 +1,60 @@
+# Single inventory of paths vps-harden may write.
+# Consumed by:
+#   * playbooks/uninstall.yml  (owned_files -> removed, modified_files -> left)
+#   * scripts/backup.sh        (snapshot + restore manifest)
+#
+# owned_files    : created by vps-harden, safe to delete on uninstall.
+# modified_files : pre-existing system files where we add or merge content
+#                  (restored from snapshot on rollback, never deleted).
+# units          : systemd units created by vps-harden.
+# packages       : candidates for "--purge" on uninstall.
+---
+vh_managed:
+  owned_files:
+    - /etc/ssh/sshd_config.d/00-vps-harden.conf
+    - /etc/sysctl.d/99-vps-harden.conf
+    - /etc/audit/rules.d/99-vps-harden.rules
+    - /etc/fail2ban/jail.d/99-vps-harden.local
+    - /etc/crowdsec/acquis.d/vps-harden-ssh.yaml
+    - /etc/crowdsec/postoverflows/s01-whitelists/vps-harden-tailnet.yaml
+    - /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml
+    - /etc/apt/apt.conf.d/20auto-upgrades
+    - /etc/apt/apt.conf.d/51-vps-harden-unattended-upgrades
+    - /etc/systemd/journald.conf.d/99-vps-harden.conf
+    - /etc/apt/sources.list.d/crowdsec.list
+    - /etc/apt/sources.list.d/tailscale.list
+    - /etc/apt/sources.list.d/docker.list
+    - /usr/share/keyrings/crowdsec-archive-keyring.gpg
+    - /usr/share/keyrings/tailscale-archive-keyring.gpg
+    - /usr/share/keyrings/docker-archive-keyring.gpg
+    - /usr/local/sbin/vps-harden-backup
+    - /usr/local/lib/vps-harden/vps_harden_mcp.py
+    - /etc/systemd/system/vps-harden-backup.service
+    - /etc/systemd/system/vps-harden-backup.timer
+    - /etc/vps-harden/hermes-skill/SKILL.md
+    - /opt/homelab/monitoring/docker-compose.yml
+    - /opt/homelab/monitoring/prometheus.yml
+    - /opt/homelab/logging/docker-compose.yml
+    - /opt/homelab/logging/loki-config.yml
+    - /opt/homelab/logging/promtail-config.yml
+
+  # Files owned by the OS that vps-harden merges content into. `rollback`
+  # restores them from a snapshot; `uninstall` leaves them in place.
+  modified_files:
+    - /etc/ssh/sshd_config
+    - /etc/ufw/after.rules
+    - /etc/docker/daemon.json
+    - /etc/default/ufw
+    - /etc/fail2ban/jail.d/sshd.local
+    - /etc/crowdsec/config.yaml
+    - /etc/crowdsec/local_api_credentials.yaml
+
+  units:
+    - vps-harden-backup.timer
+    - vps-harden-backup.service
+
+  packages:
+    - fail2ban
+    - crowdsec
+    - crowdsec-firewall-bouncer-iptables
+    - crowdsec-firewall-bouncer-nftables

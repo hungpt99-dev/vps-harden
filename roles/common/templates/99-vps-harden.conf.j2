@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+#
+# Kernel hardening applied by vps-harden.
+# Deliberately conservative: no forwarding/rp_filter changes, because Docker
+# and Tailscale depend on them. Override common_sysctl_settings to change.
+{% for key, value in common_sysctl_settings | dictsort %}
+{{ key }} = {{ value }}
+{% endfor %}

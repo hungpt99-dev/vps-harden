@@ -1,0 +1,12 @@
+---
+- name: Install Hermes Agent
+  ansible.builtin.import_tasks: install.yml
+  when:
+    - hermes_enabled | bool
+    - vh_phase | default('all') in ['install', 'all']
+
+- name: Configure the Hermes integration
+  ansible.builtin.import_tasks: configure.yml
+  when:
+    - hermes_enabled | bool
+    - vh_phase | default('all') in ['configure', 'all']

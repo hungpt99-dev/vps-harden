@@ -1,0 +1,65 @@
+---
+- name: Collect installed packages
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Ensure the keyring directory exists
+  ansible.builtin.file:
+    path: /usr/share/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when:
+    - crowdsec_manage_repo | bool
+    - "'crowdsec' not in ansible_facts.packages"
+
+- name: Download the CrowdSec repository signing key
+  ansible.builtin.get_url:
+    url: "{{ crowdsec_repo_key_url }}"
+    dest: /tmp/crowdsec-archive-key.asc
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+  when:
+    - crowdsec_manage_repo | bool
+    - "'crowdsec' not in ansible_facts.packages"
+
+- name: Dearmor the signing key
+  ansible.builtin.command:
+    argv:
+      - gpg
+      - --dearmor
+      - --yes
+      - --output
+      - "{{ crowdsec_keyring }}"
+      - /tmp/crowdsec-archive-key.asc
+  args:
+    creates: "{{ crowdsec_keyring }}"
+  when:
+    - crowdsec_manage_repo | bool
+    - "'crowdsec' not in ansible_facts.packages"
+
+- name: Add the CrowdSec apt repository
+  ansible.builtin.copy:
+    content: "{{ crowdsec_repo_line }}\n"
+    dest: /etc/apt/sources.list.d/crowdsec.list
+    owner: root
+    group: root
+    mode: "0644"
+  register: crowdsec_repo_added
+  when:
+    - crowdsec_manage_repo | bool
+    - "'crowdsec' not in ansible_facts.packages"
+
+- name: Refresh the package index after adding the repository
+  ansible.builtin.apt:
+    update_cache: true
+  when: crowdsec_repo_added is changed
+
+- name: Install the CrowdSec security engine
+  ansible.builtin.apt:
+    name: crowdsec
+    state: present
+    install_recommends: false

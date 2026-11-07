@@ -1,0 +1,85 @@
+---
+# The stack binds to 127.0.0.1 by default. Reach Grafana through an SSH tunnel
+# (`ssh -L 3030:127.0.0.1:3030 host`) or `tailscale serve`; publishing 3000/9090
+# on a public VPS is how observability becomes an exposure.
+
+- name: Require Docker for the monitoring stack
+  ansible.builtin.command:
+    argv: [docker, --version]
+  register: monitoring_docker
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Fail when Docker is missing
+  ansible.builtin.fail:
+    msg: >-
+      monitoring.enabled=true requires Docker. Install it first with
+      "sudo ./install.sh install docker" (or set docker.enabled=true).
+  when: monitoring_docker.rc != 0
+
+- name: Create the monitoring directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - "{{ monitoring_dir }}"
+    - "{{ monitoring_dir }}/grafana"
+
+- name: Deploy the Prometheus scrape configuration
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ monitoring_dir }}/prometheus.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Deploy the compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ monitoring_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: Start the monitoring stack
+  ansible.builtin.command:
+    argv: [docker, compose, up, -d, --remove-orphans]
+    chdir: "{{ monitoring_dir }}"
+  register: monitoring_up
+  changed_when: "'Started' in monitoring_up.stderr or 'Created' in monitoring_up.stderr or 'Recreated' in monitoring_up.stderr"
+  when: not ansible_check_mode
+
+- name: Wait for the Grafana endpoint
+  ansible.builtin.wait_for:
+    host: "{{ monitoring_bind_address }}"
+    port: "{{ monitoring_grafana_port }}"
+    timeout: 90
+  when: not ansible_check_mode
+
+- name: Verify Grafana answers
+  ansible.builtin.command:
+    argv: [curl, -fsS, "-o", /dev/null, "-w", "%{http_code}",
+           "http://{{ monitoring_bind_address }}:{{ monitoring_grafana_port }}/api/health"]
+  register: monitoring_health
+  changed_when: false
+  failed_when: false
+  retries: 10
+  delay: 3
+  until: monitoring_health.stdout | default('') | trim == '200'
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Fail when Grafana does not answer
+  ansible.builtin.fail:
+    msg: >-
+      Grafana did not return HTTP 200 on
+      {{ monitoring_bind_address }}:{{ monitoring_grafana_port }}
+      (got {{ monitoring_health.stdout | default('') | trim }}).
+      Check `docker compose -f {{ monitoring_dir }}/docker-compose.yml logs`.
+  when:
+    - not ansible_check_mode
+    - monitoring_health.stdout | default('') | trim != '200'

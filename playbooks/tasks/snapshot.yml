@@ -1,0 +1,25 @@
+---
+# Pre-change configuration snapshot.
+#
+# Runs before any playbook that may write. It is cheap (a few hundred KB), kept
+# to the last 10 snapshots by scripts/backup.sh, and is what
+# "install.sh rollback" restores.
+- name: Skip snapshot in check mode
+  ansible.builtin.set_fact:
+    vh_snapshot_needed: "{{ not ansible_check_mode }}"
+
+- name: Take a configuration snapshot before changing the system
+  ansible.builtin.command:
+    argv:
+      - "{{ playbook_dir }}/../scripts/backup.sh"
+      - "--quiet"
+      - "--reason"
+      - "{{ vh_snapshot_reason | default(vh_phase | default('configure')) }}"
+  register: vh_snapshot
+  changed_when: false
+  when: vh_snapshot_needed | bool
+
+- name: Record the snapshot identifier
+  ansible.builtin.set_fact:
+    vh_snapshot_id: "{{ vh_snapshot.stdout_lines[-1] | default('none') }}"
+  when: vh_snapshot_needed | bool

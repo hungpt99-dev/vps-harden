@@ -1,0 +1,23 @@
+# {{ ansible_managed }}
+#
+# CrowdSec firewall bouncer. The API key below is a local credential: this file
+# is mode 0600 and excluded from scheduled backups.
+api_url: {{ crowdsec_lapi_url }}/
+api_key: {{ crowdsec_bouncer_api_key }}
+insecure_skip_verify: false
+
+mode: iptables
+iptables_chains:
+  - INPUT
+  - FORWARD
+
+# Never touch the tailnet or loopback.
+blacklist:
+  ips: []
+
+log_mode: file
+log_dir: /var/log/
+log_level: info
+log_max_size: 40
+log_max_age: 7
+log_max_backups: 3

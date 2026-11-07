@@ -1,0 +1,12 @@
+port 22
+addressfamily any
+permitrootlogin without-password
+passwordauthentication yes
+pubkeyauthentication yes
+kbdinteractiveauthentication no
+maxauthtries 6
+x11forwarding no
+allowtcpforwarding yes
+clientaliveinterval 0
+clientalivecountmax 3
+hostkeyalgorithms ssh-ed25519,rsa-sha2-512

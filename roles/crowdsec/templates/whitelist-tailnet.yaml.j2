@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+#
+# Never ban the tailnet: this is the administrative path.
+# Deliberately NOT all of RFC1918 — on a Docker host most "private" sources are
+# rewritten container traffic, and whitelisting them blinds detection.
+name: local/vps-harden-tailnet
+description: "vps-harden: never ban Tailscale CGNAT ranges (admin access)"
+whitelist:
+  reason: "tailnet administration"
+  ip:
+    - "100.64.0.0/10"
+    - "fd7a:115c:a1e0::/48"

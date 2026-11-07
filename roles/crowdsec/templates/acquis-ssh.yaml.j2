@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+#
+# SSH acquisition for CrowdSec.
+{% if (crowdsec_acquisition_method | default('file')) == 'file' %}
+filenames:
+  - /var/log/auth.log
+labels:
+  type: syslog
+source: file
+{% else %}
+source: journalctl
+journalctl_filter:
+  - "_SYSTEMD_UNIT=ssh.service"
+labels:
+  type: syslog
+{% endif %}

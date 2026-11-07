@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+#
+# Bound journal growth so a chatty container cannot fill the disk and take the
+# host down. journalctl remains the query interface.
+[Journal]
+SystemMaxUse={{ logging_journald_max_use }}
+SystemKeepFree=1G
+MaxRetentionSec={{ logging_journald_retention }}
+Compress=yes
+{% if logging_journald_forward_to_syslog | bool %}
+ForwardToSyslog=yes
+{% else %}
+ForwardToSyslog=no
+{% endif %}

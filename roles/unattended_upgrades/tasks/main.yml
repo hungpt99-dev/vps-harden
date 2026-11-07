@@ -1,0 +1,10 @@
+---
+- name: Install unattended-upgrades
+  ansible.builtin.import_tasks: install.yml
+  when: vh_phase | default('all') in ['install', 'all']
+
+- name: Configure unattended upgrades
+  ansible.builtin.import_tasks: configure.yml
+  when:
+    - unattended_upgrades_enabled | bool
+    - vh_phase | default('all') in ['configure', 'all']

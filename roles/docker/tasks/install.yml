@@ -1,0 +1,48 @@
+---
+- name: Collect installed packages
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Download the Docker repository key
+  ansible.builtin.get_url:
+    url: "{{ docker_key_url }}"
+    dest: /tmp/docker-archive-key.asc
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+  when:
+    - docker_manage_repo | bool
+    - "'docker-ce' not in ansible_facts.packages"
+
+- name: Dearmor the Docker signing key
+  ansible.builtin.command:
+    argv: [gpg, --dearmor, --yes, --output, "{{ docker_keyring }}", /tmp/docker-archive-key.asc]
+  args:
+    creates: "{{ docker_keyring }}"
+  when:
+    - docker_manage_repo | bool
+    - "'docker-ce' not in ansible_facts.packages"
+
+- name: Add the Docker apt repository
+  ansible.builtin.copy:
+    content: "{{ docker_repo_line }}\n"
+    dest: /etc/apt/sources.list.d/docker.list
+    owner: root
+    group: root
+    mode: "0644"
+  register: docker_repo_added
+  when:
+    - docker_manage_repo | bool
+    - "'docker-ce' not in ansible_facts.packages"
+
+- name: Refresh the package index after adding the repository
+  ansible.builtin.apt:
+    update_cache: true
+  when: docker_repo_added is changed
+
+- name: Install Docker Engine and the Compose plugin
+  ansible.builtin.apt:
+    name: "{{ docker_packages }}"
+    state: present
+    install_recommends: false

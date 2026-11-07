@@ -1,0 +1,29 @@
+---
+- name: Create the report directory
+  ansible.builtin.file:
+    path: "{{ audit_reports_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Ensure the audit engine is executable
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}/../scripts/vh_audit.py"
+    mode: "0755"
+
+- name: Find audit reports older than the retention window
+  ansible.builtin.find:
+    paths: "{{ audit_reports_dir }}"
+    patterns: "audit-*.txt,audit-*.json"
+    age: "{{ audit_retention_days }}d"
+  register: audit_old_reports
+  when: not ansible_check_mode
+
+- name: Remove expired audit reports
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ audit_old_reports.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"

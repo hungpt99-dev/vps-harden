@@ -1,0 +1,76 @@
+---
+- name: Check that unattended-upgrades is installed
+  ansible.builtin.stat:
+    path: /var/lib/dpkg/info/unattended-upgrades.list
+  register: unattended_pkg
+  check_mode: false
+
+- name: Explain how to install it
+  ansible.builtin.fail:
+    msg: >-
+      unattended-upgrades is not installed on this host.
+      Run: sudo ./install.sh install unattended
+  when: not unattended_pkg.stat.exists
+
+- name: Enable periodic package list updates
+  ansible.builtin.template:
+    src: 20auto-upgrades.j2
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+
+- name: Deploy the security upgrade policy
+  ansible.builtin.template:
+    src: 51-vps-harden-unattended-upgrades.j2
+    dest: /etc/apt/apt.conf.d/51-vps-harden-unattended-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+
+- name: Validate the generated APT configuration
+  ansible.builtin.command:
+    argv: [apt-config, dump, "APT::Periodic::Unattended-Upgrade"]
+  register: unattended_validation
+  changed_when: false
+  check_mode: false
+
+- name: Verify that APT parsed the automatic upgrade policy
+  ansible.builtin.assert:
+    that:
+      - "'1' in unattended_validation.stdout"
+    fail_msg: >-
+      APT did not accept the generated unattended-upgrades configuration
+      (apt-config dump returned {{ unattended_validation.stdout | trim }}).
+    quiet: true
+
+- name: Enable the unattended-upgrades service
+  ansible.builtin.systemd:
+    name: unattended-upgrades.service
+    enabled: true
+
+- name: Enable and start the APT timers
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+
+- name: Verify the upgrade timer is enabled
+  ansible.builtin.command:
+    argv: [systemctl, is-enabled, apt-daily-upgrade.timer]
+  register: unattended_timer
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Warn when the upgrade timer is not enabled
+  ansible.builtin.debug:
+    msg: >-
+      apt-daily-upgrade.timer is {{ unattended_timer.stdout | default('unknown') }}.
+      Automatic upgrades will not run until it is enabled.
+  when: unattended_timer.stdout | default('') | trim != 'enabled'

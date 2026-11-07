@@ -1,0 +1,67 @@
+---
+# Read-only pre-flight. Every changing playbook imports this before touching
+# the system, so unsupported hosts fail before the first write.
+- name: Require root privileges
+  ansible.builtin.assert:
+    that:
+      - ansible_user_id == 'root'
+    fail_msg: >-
+      vps-harden must run as root because it manages /etc and system services.
+      Re-run with sudo, e.g. "sudo ./install.sh {{ vh_phase | default('install') }}".
+    quiet: true
+
+- name: Require a supported operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'Ubuntu'
+      - ansible_distribution_version is version('22.04', '>=')
+      - ansible_distribution_version is version('25.00', '<')
+    fail_msg: >-
+      Unsupported platform: {{ ansible_distribution }} {{ ansible_distribution_version }}.
+      vps-harden supports Ubuntu 22.04 LTS and 24.04 LTS. Newer LTS releases are
+      usually compatible; add them to the allowlist after testing.
+    quiet: true
+
+- name: Require a supported architecture
+  ansible.builtin.assert:
+    that:
+      - ansible_architecture in ['x86_64', 'aarch64']
+    fail_msg: "Unsupported architecture: {{ ansible_architecture }} (need x86_64 or aarch64)."
+    quiet: true
+
+- name: Require a running systemd
+  ansible.builtin.stat:
+    path: /run/systemd/system
+  register: vh_systemd_dir
+
+- name: Fail when systemd is not running
+  ansible.builtin.assert:
+    that:
+      - vh_systemd_dir.stat.isdir | default(false)
+    fail_msg: >-
+      systemd is not running on this host. vps-harden manages system services and
+      cannot operate inside a plain container without systemd.
+    quiet: true
+
+- name: Validate the effective configuration
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - "{{ playbook_dir }}/../scripts/validate_config.py"
+      - "--defaults"
+      - "{{ playbook_dir }}/../config/defaults.yml"
+      - "--user"
+      - "{{ vps_harden_config_file }}"
+  register: vh_config_validation
+  changed_when: false
+  # Read-only probe: it must run under --check too, otherwise the guard below
+  # would evaluate an undefined .rc.
+  check_mode: false
+  when: vh_config_stat.stat.exists
+
+- name: Report configuration problems
+  ansible.builtin.fail:
+    msg: "{{ vh_config_validation.stderr_lines }}"
+  when:
+    - vh_config_stat.stat.exists
+    - vh_config_validation.rc | default(0) != 0

@@ -1,0 +1,61 @@
+---
+- name: Look for an existing Hermes Agent installation
+  ansible.builtin.command:
+    argv: [bash, -lc, "command -v hermes"]
+  register: hermes_binary
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Fail when Hermes is required but missing and no installer is configured
+  ansible.builtin.fail:
+    msg: >-
+      Hermes Agent is not installed and hermes.install is false.
+      Hermes has its own installer; if you want vps-harden to run it, set
+      hermes.install=true and hermes.installer_url (plus installer_sha256) in
+      config/vps-harden.yml after reviewing that script.
+  when:
+    - hermes_binary.rc != 0
+    - not (hermes_install | bool)
+
+- name: Require an explicit installer URL and checksum
+  ansible.builtin.assert:
+    that:
+      - hermes_installer_url | length > 0
+      - hermes_installer_sha256 | length == 64
+    fail_msg: >-
+      hermes.install=true needs hermes.installer_url and a 64-character
+      hermes.installer_sha256. vps-harden will not execute an unverified
+      download.
+    quiet: true
+  when:
+    - hermes_binary.rc != 0
+    - hermes_install | bool
+
+- name: Download the Hermes installer
+  ansible.builtin.get_url:
+    url: "{{ hermes_installer_url }}"
+    dest: /tmp/hermes-install.sh
+    checksum: "sha256:{{ hermes_installer_sha256 }}"
+    owner: root
+    group: root
+    mode: "0700"
+  when:
+    - hermes_binary.rc != 0
+    - hermes_install | bool
+
+- name: Run the Hermes installer
+  ansible.builtin.command:
+    argv: [bash, /tmp/hermes-install.sh]
+  register: hermes_install_run
+  changed_when: true
+  when:
+    - hermes_binary.rc != 0
+    - hermes_install | bool
+
+- name: Report the installer result
+  ansible.builtin.debug:
+    msg: "{{ hermes_install_run.stdout_lines | default([]) | last | default('installer finished') }}"
+  when:
+    - hermes_binary.rc != 0
+    - hermes_install | bool

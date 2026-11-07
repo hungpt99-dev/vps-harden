@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+#
+# Scheduled restic backup for vps-harden managed data.
+# Restore:
+#   export RESTIC_REPOSITORY={{ backup_local_repo }}
+#   export RESTIC_PASSWORD_FILE={{ backup_password_file }}
+#   restic snapshots
+#   restic restore latest --target /restore
+set -Eeuo pipefail
+
+export RESTIC_REPOSITORY="{{ backup_local_repo }}"
+export RESTIC_PASSWORD_FILE="{{ backup_password_file }}"
+
+/usr/bin/restic backup \
+{% for path in backup_paths %}
+    {{ path }} \
+{% endfor %}
+{% for exclude in backup_exclude %}
+    --exclude {{ exclude }} \
+{% endfor %}
+    --tag vps-harden --host "$(hostname)"
+
+/usr/bin/restic forget \
+    --keep-daily {{ backup_keep_daily }} \
+    --keep-weekly {{ backup_keep_weekly }} \
+    --keep-monthly {{ backup_keep_monthly }} \
+    --prune

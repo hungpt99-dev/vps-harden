@@ -1,0 +1,88 @@
+# vps-harden — example configuration
+#
+#   cp config/example.yml config/vps-harden.yml
+#   sudo ./install.sh check
+#   sudo ./install.sh install
+#
+# Every key below is documented in config/defaults.yml and in
+# docs/configuration.md. Unspecified keys fall back to the built-in defaults.
+#
+# This file is the ONLY place you configure vps-harden. Roles never read
+# ad-hoc environment variables.
+---
+vps_harden:
+  timezone: Europe/Berlin
+
+  ssh:
+    enabled: true
+    port: 22
+    # Do not flip this to false until a key login for a sudo user works.
+    # `install.sh ssh status` tells you whether that is true.
+    password_authentication: false
+    permit_root_login: false
+    max_auth_tries: 3
+    admin_users: []
+
+  ufw:
+    enabled: true
+    logging: low
+    allow_tailscale: true
+    extra_rules:
+      - rule: allow
+        port: "443"
+        proto: tcp
+        comment: "HTTPS"
+    # Keep a 10 minute escape hatch the first time you enable the firewall:
+    # if you lose access, UFW disables itself. Cancel after verifying access:
+    #   sudo ./install.sh firewall cancel-deadman
+    deadman_minutes: 10
+    # Only enable once you have read docs/firewall.md#docker.
+    manage_docker_user_chain: false
+    docker_allowed_ports: []
+
+  fail2ban:
+    enabled: true
+    maxretry: 5
+    findtime: 10m
+    bantime: 1h
+    bantime_increment: true
+    bantime_maxtime: 4w
+    # Add your own public admin IP here only if you must keep password/port 22
+    # access. Tailnet access is already exempt.
+    ignoreip: []
+
+  crowdsec:
+    enabled: true
+    collections:
+      - crowdsecurity/linux
+      - crowdsecurity/sshd
+    # Detection only by default. Enforcement is a separate, explicit decision.
+    firewall_bouncer_enabled: false
+
+  unattended_upgrades:
+    enabled: true
+    automatic_reboot: false
+    reboot_time: "03:00"
+
+  tailscale:
+    enabled: false
+
+  docker:
+    enabled: false
+
+  hermes:
+    enabled: false
+    register_mcp: false
+
+  monitoring:
+    enabled: false
+
+  logging:
+    enabled: false
+
+  backup:
+    enabled: false
+    local_repo: /var/backups/vps-harden/restic
+
+  audit:
+    fail_on: fail

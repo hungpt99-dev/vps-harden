@@ -1,0 +1,14 @@
+---
+- name: Prepare the container
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Ensure apt metadata is fresh
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install python3-yaml for the validation helpers
+      ansible.builtin.apt:
+        name: python3-yaml
+        state: present

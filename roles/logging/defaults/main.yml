@@ -1,0 +1,14 @@
+---
+logging_enabled: false
+logging_manage_journald: true
+logging_journald_max_use: 500M
+logging_journald_retention: 30d
+logging_journald_forward_to_syslog: false
+
+# Optional log aggregation (Loki + Promtail) next to Grafana from the
+# monitoring role. Off by default: journald + journalctl is enough for one VPS.
+logging_loki_enabled: false
+logging_loki_port: 3100
+logging_dir: /opt/homelab/logging
+logging_loki_image: grafana/loki:3.2.1
+logging_promtail_image: grafana/promtail:3.2.1

@@ -1,0 +1,7 @@
+tcp LISTEN 0 4096 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=1001,fd=3))
+tcp LISTEN 0 4096 0.0.0.0:8443 0.0.0.0:* users:(("docker-proxy",pid=2001,fd=8))
+tcp LISTEN 0 4096 127.0.0.1:6060 0.0.0.0:* users:(("crowdsec",pid=3001,fd=16))
+tcp LISTEN 0 4096 100.64.0.10:41642 0.0.0.0:* users:(("tailscaled",pid=4001,fd=24))
+tcp LISTEN 0 4096 [::]:22 [::]:* users:(("sshd",pid=1002,fd=4))
+tcp LISTEN 0 4096 [::]:9443 [::]:* users:(("docker-proxy",pid=2002,fd=9))
+udp LISTEN 0 4096 0.0.0.0:41641 0.0.0.0:* users:(("tailscaled",pid=4001,fd=23))

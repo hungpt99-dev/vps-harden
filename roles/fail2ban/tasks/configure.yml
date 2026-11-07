@@ -1,0 +1,144 @@
+---
+- name: Require fail2ban to be installed
+  ansible.builtin.command:
+    argv: [fail2ban-client, --version]
+  register: fail2ban_present
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Explain how to install fail2ban
+  ansible.builtin.fail:
+    msg: >-
+      fail2ban is not installed on this host.
+      Run: sudo ./install.sh install fail2ban
+  when: fail2ban_present.rc != 0
+
+- name: Find existing fail2ban jail files
+  ansible.builtin.find:
+    paths: /etc/fail2ban/jail.d
+    patterns: "*.conf,*.local"
+    file_type: file
+  register: fail2ban_jail_files
+
+- name: Detect other files that configure the sshd jail
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -lE
+      - "^\\[{{ fail2ban_jail_name }}\\]"
+      - "{{ item.path }}"
+  loop: "{{ fail2ban_jail_files.files }}"
+  register: fail2ban_conflict_probe
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: item.path is not search('99-vps-harden.local')
+
+- name: Collect conflicting jail files
+  ansible.builtin.set_fact:
+    fail2ban_conflicting_files: >-
+      {{ fail2ban_conflict_probe.results | default([]) | selectattr('rc', 'defined')
+         | selectattr('rc', 'eq', 0) | map(attribute='item.path') | list }}
+
+- name: Refuse to run with conflicting jail files
+  ansible.builtin.fail:
+    msg: >-
+      These files already configure [{{ fail2ban_jail_name }}] in
+      /etc/fail2ban/jail.d: {{ fail2ban_conflicting_files | join(', ') }}.
+      vps-harden will not silently override another owner's jail. Either
+      remove them, set fail2ban.conflict_policy=adopt (renames them to
+      *.pre-vps-harden.bak, recoverable from a snapshot), or =ignore.
+  when:
+    - fail2ban_conflicting_files | length > 0
+    - fail2ban_conflict_policy == 'fail'
+
+- name: Preserve conflicting jail files before adopting
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ item }}.pre-vps-harden.bak"
+    remote_src: true
+    mode: "0644"
+    force: false
+  loop: "{{ fail2ban_conflicting_files }}"
+  when:
+    - fail2ban_conflicting_files | length > 0
+    - fail2ban_conflict_policy == 'adopt'
+
+- name: Remove adopted jail files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ fail2ban_conflicting_files }}"
+  when:
+    - fail2ban_conflicting_files | length > 0
+    - fail2ban_conflict_policy == 'adopt'
+
+- name: Warn about ignored jail conflicts
+  ansible.builtin.debug:
+    msg: >-
+      Leaving {{ fail2ban_conflicting_files | join(', ') }} in place. Its
+      [{{ fail2ban_jail_name }}] section may override vps-harden settings;
+      the audit reports the effective jail but not its source file.
+  when:
+    - fail2ban_conflicting_files | length > 0
+    - fail2ban_conflict_policy == 'ignore'
+
+- name: Deploy the fail2ban jail configuration
+  ansible.builtin.template:
+    src: 99-vps-harden.local.j2
+    dest: /etc/fail2ban/jail.d/99-vps-harden.local
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  notify: Restart fail2ban
+
+- name: Validate the fail2ban configuration
+  ansible.builtin.command:
+    argv: [fail2ban-client, -t]
+  register: fail2ban_validate
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Stop when the fail2ban configuration is invalid
+  ansible.builtin.fail:
+    msg: >-
+      fail2ban-client -t rejected the configuration:
+      {{ fail2ban_validate.stderr | default('') | trim }}.
+      The previous file was kept as a backup; restore it from
+      /etc/fail2ban/jail.d/99-vps-harden.local.* or run `install.sh rollback`.
+  when:
+    - not ansible_check_mode
+    - fail2ban_validate.rc | default(0) != 0
+
+- name: Enable and start fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    enabled: true
+    state: started
+  when: fail2ban_manage_service | bool
+
+- name: Apply pending fail2ban changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Read fail2ban jails
+  ansible.builtin.command:
+    argv: [fail2ban-client, status]
+  register: fail2ban_status
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Verify that the SSH jail is running
+  ansible.builtin.assert:
+    that:
+      - fail2ban_status.stdout is search('Jail list:.*\\b' ~ fail2ban_jail_name ~ '\\b')
+    fail_msg: >-
+      The {{ fail2ban_jail_name }} jail is not active. Check
+      `journalctl -u fail2ban -n 50`; the usual cause is a journalmatch that
+      does not match the SSH unit name on this release.
+    quiet: true
+  when: not ansible_check_mode

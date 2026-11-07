@@ -1,0 +1,36 @@
+# {{ ansible_managed }}
+#
+# vps-harden fail2ban jail. jail.conf is never modified; this file is read after
+# it and overrides the relevant keys.
+#
+# ignoreip: loopback and the Tailscale CGNAT ranges are always exempt so that
+# tailnet administration cannot be banned. Do NOT add all of RFC1918 here: on a
+# Docker host most "private" sources are rewritten traffic, and trusting them
+# blinds the jail to real attacks proxied through a container network.
+
+[DEFAULT]
+backend = {{ fail2ban_backend }}
+banaction = {{ fail2ban_banaction }}
+banaction_allports = {{ fail2ban_banaction }}[type=allports]
+ignoreip = 127.0.0.1/8 ::1 100.64.0.0/10 fd7a:115c:a1e0::/48{% for ip in fail2ban_ignoreip %} {{ ip }}{% endfor %}
+
+maxretry = {{ fail2ban_maxretry }}
+findtime = {{ fail2ban_findtime }}
+bantime = {{ fail2ban_bantime }}
+{% if fail2ban_bantime_increment | bool %}
+bantime.increment = true
+bantime.factor = {{ fail2ban_bantime_factor }}
+bantime.maxtime = {{ fail2ban_bantime_maxtime }}
+{% endif %}
+
+[{{ fail2ban_jail_name }}]
+enabled = true
+port = {{ fail2ban_ssh_port }}
+filter = sshd
+backend = {{ fail2ban_backend }}
+# Ubuntu ships the daemon as ssh.service, while the upstream filter's default
+# journalmatch expects sshd.service. Match the unit explicitly.
+journalmatch = _SYSTEMD_UNIT=ssh.service + _COMM=sshd
+maxretry = {{ fail2ban_maxretry }}
+findtime = {{ fail2ban_findtime }}
+bantime = {{ fail2ban_bantime }}

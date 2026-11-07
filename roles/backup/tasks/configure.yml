@@ -1,0 +1,130 @@
+---
+- name: Require restic to be installed
+  ansible.builtin.command:
+    argv: [restic, version]
+  register: backup_present
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Explain how to install restic
+  ansible.builtin.fail:
+    msg: >-
+      restic is not installed on this host.
+      Run: sudo ./install.sh install backup
+  when: backup_present.rc != 0
+
+# Repository password lives OUTSIDE /etc so it is not inside the backup it
+# protects. Losing it means the repository is unreadable: store a copy in your
+# password manager, not in this repository.
+- name: Create the backup directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop:
+    - "{{ backup_local_repo }}"
+    - "{{ backup_password_file | dirname }}"
+
+- name: Check for an existing repository password
+  ansible.builtin.stat:
+    path: "{{ backup_password_file }}"
+  register: backup_password_stat
+
+- name: Generate a repository password
+  ansible.builtin.command:
+    argv: [openssl, rand, -base64, "48"]
+  register: backup_password_generated
+  changed_when: true
+  no_log: true
+  when: not backup_password_stat.stat.exists
+
+- name: Store the repository password
+  ansible.builtin.copy:
+    content: "{{ backup_password_generated.stdout }}\n"
+    dest: "{{ backup_password_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: not backup_password_stat.stat.exists
+
+- name: Explain where the password was written
+  ansible.builtin.debug:
+    msg: >-
+      Generated a restic repository password at {{ backup_password_file }}.
+      Back it up separately (password manager): without it the repository
+      cannot be restored.
+  when: not backup_password_stat.stat.exists
+
+- name: Check whether the repository is initialised
+  ansible.builtin.command:
+    argv: [restic, "cat", "config"]
+  environment:
+    RESTIC_REPOSITORY: "{{ backup_local_repo }}"
+    RESTIC_PASSWORD_FILE: "{{ backup_password_file }}"
+  register: backup_repo_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Initialise the restic repository
+  ansible.builtin.command:
+    argv: [restic, init]
+  environment:
+    RESTIC_REPOSITORY: "{{ backup_local_repo }}"
+    RESTIC_PASSWORD_FILE: "{{ backup_password_file }}"
+  changed_when: true
+  when: backup_repo_check.rc != 0
+
+- name: Deploy the backup script
+  ansible.builtin.template:
+    src: vps-harden-backup.j2
+    dest: "{{ backup_script }}"
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Deploy the backup service
+  ansible.builtin.template:
+    src: vps-harden-backup.service.j2
+    dest: /etc/systemd/system/{{ backup_service }}
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Deploy the backup timer
+  ansible.builtin.template:
+    src: vps-harden-backup.timer.j2
+    dest: /etc/systemd/system/{{ backup_timer }}
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Reload systemd units
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Enable and start the backup timer
+  ansible.builtin.systemd:
+    name: "{{ backup_timer }}"
+    enabled: true
+    state: started
+
+- name: Verify the timer is scheduled
+  ansible.builtin.command:
+    argv: [systemctl, is-enabled, "{{ backup_timer }}"]
+  register: backup_timer_state
+  changed_when: false
+  check_mode: false
+
+- name: Assert the backup timer is enabled
+  ansible.builtin.assert:
+    that:
+      - backup_timer_state.stdout | trim == 'enabled'
+    fail_msg: >-
+      {{ backup_timer }} is not enabled ({{ backup_timer_state.stdout | trim }}).
+      Backups are not scheduled.
+    quiet: true

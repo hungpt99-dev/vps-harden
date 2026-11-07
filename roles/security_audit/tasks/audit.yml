@@ -1,0 +1,87 @@
+---
+# Read-only. The audit engine only reads files and runs query commands; it never
+# writes outside the report directory.
+- name: Create the report directory
+  ansible.builtin.file:
+    path: "{{ audit_reports_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Define the report paths
+  ansible.builtin.set_fact:
+    audit_stamp: "{{ now(utc=true, fmt='%Y%m%dT%H%M%SZ') }}"
+    audit_text_report: "{{ audit_reports_dir }}/audit-{{ now(utc=true, fmt='%Y%m%dT%H%M%SZ') }}.txt"
+    audit_json_report: "{{ audit_reports_dir }}/audit-{{ now(utc=true, fmt='%Y%m%dT%H%M%SZ') }}.json"
+
+- name: Run the security audit
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - "{{ playbook_dir }}/../scripts/vh_audit.py"
+      - "--report"
+      - "{{ audit_text_report }}"
+      - "--json-out"
+      - "{{ audit_json_report }}"
+      - "--quiet"
+      - "--fail-on"
+      - "{{ audit_fail_on }}"
+      - "--paths-file"
+      - "{{ playbook_dir }}/../config/managed_paths.yml"
+      - "--version"
+      - "1.0.0"
+      - "--ssh-port"
+      - "{{ ssh_port | default(22) | string }}"
+      - "--expect-ufw"
+      - "{{ 'true' if ufw_enabled | default(true) | bool else 'false' }}"
+      - "--expect-fail2ban"
+      - "{{ 'true' if fail2ban_enabled | default(true) | bool else 'false' }}"
+      - "--expect-crowdsec"
+      - "{{ 'true' if crowdsec_enabled | default(true) | bool else 'false' }}"
+      - "--expect-unattended"
+      - "{{ 'true' if unattended_upgrades_enabled | default(true) | bool else 'false' }}"
+      - "--expect-tailscale"
+      - "{{ 'true' if tailscale_enabled | default(false) | bool else 'false' }}"
+      - "--expect-docker"
+      - "{{ 'true' if docker_enabled | default(false) | bool else 'false' }}"
+  register: audit_run
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Read the JSON report for the summary
+  ansible.builtin.slurp:
+    src: "{{ audit_json_report }}"
+  register: audit_json_raw
+  failed_when: false
+  check_mode: false
+
+- name: Build the summary
+  ansible.builtin.set_fact:
+    audit_document: "{{ audit_json_raw.content | default('e30=') | b64decode | from_json }}"
+    audit_fail_titles: >-
+      {{ (audit_json_raw.content | default('e30=') | b64decode | from_json).findings
+         | default([]) | selectattr('status', 'eq', 'FAIL') | map(attribute='title') | list }}
+    audit_warn_titles: >-
+      {{ (audit_json_raw.content | default('e30=') | b64decode | from_json).findings
+         | default([]) | selectattr('status', 'eq', 'WARN') | map(attribute='title') | list }}
+
+- name: Show the audit summary
+  ansible.builtin.debug:
+    msg:
+      - "Host: {{ inventory_hostname }}"
+      - "Report: {{ audit_text_report }}"
+      - "Summary: {{ audit_document.summary | default({}) }}"
+      - "FAIL: {{ audit_fail_titles }}"
+      - "WARN: {{ audit_warn_titles }}"
+
+- name: Fail when the audit found blocking findings
+  ansible.builtin.fail:
+    msg: >-
+      Audit found {{ audit_document.summary.FAIL | default(0) }} FAIL finding(s).
+      Full report: {{ audit_text_report }}
+      Re-run with audit.fail_on=never to report without failing.
+  when:
+    - audit_run.rc != 0
+    - audit_fail_on != 'never'

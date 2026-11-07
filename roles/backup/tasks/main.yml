@@ -1,0 +1,11 @@
+---
+- name: Install the backup engine
+  ansible.builtin.apt:
+    name: restic
+    state: present
+    install_recommends: false
+  when: vh_phase | default('all') in ['install', 'all']
+
+- name: Configure scheduled backups
+  ansible.builtin.import_tasks: configure.yml
+  when: vh_phase | default('all') in ['configure', 'all']

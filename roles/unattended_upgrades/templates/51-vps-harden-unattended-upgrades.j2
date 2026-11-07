@@ -1,0 +1,36 @@
+# {{ ansible_managed }}
+#
+# Security-only automatic upgrades.
+# Reboots are never automatic unless explicitly enabled in config/vps-harden.yml:
+# an unattended VPS reboot can take services down with nobody watching.
+
+Unattended-Upgrade::Allowed-Origins {
+{% for origin in unattended_origins %}
+{% if origin == 'security' %}
+        "${distro_id}:${distro_codename}-security";
+        "${distro_id}ESMApps:${distro_codename}-apps-security";
+        "${distro_id}ESM:${distro_codename}-infra-security";
+{% elif origin == 'updates' %}
+        "${distro_id}:${distro_codename}-updates";
+{% elif origin == 'esm-infra' %}
+        "${distro_id}ESM:${distro_codename}-infra-security";
+{% elif origin == 'esm-apps' %}
+        "${distro_id}ESMApps:${distro_codename}-apps-security";
+{% endif %}
+{% endfor %}};
+
+Unattended-Upgrade::Package-Blacklist {
+};
+
+Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+Unattended-Upgrade::MinimalSteps "true";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "{{ 'true' if unattended_remove_unused | bool else 'false' }}";
+Unattended-Upgrade::Automatic-Reboot "{{ 'true' if unattended_automatic_reboot | bool else 'false' }}";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
+Unattended-Upgrade::Automatic-Reboot-Time "{{ unattended_reboot_time }}";
+Unattended-Upgrade::SyslogEnable "true";
+{% if unattended_email | length > 0 %}
+Unattended-Upgrade::Mail "{{ unattended_email }}";
+Unattended-Upgrade::MailReport "on-change";
+{% endif %}

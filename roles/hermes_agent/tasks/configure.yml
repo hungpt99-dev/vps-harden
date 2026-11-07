@@ -1,0 +1,79 @@
+---
+- name: Create the integration directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /usr/local/lib/vps-harden
+    - /etc/vps-harden/hermes-skill
+
+- name: Deploy the read-only MCP server
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../integrations/hermes/mcp/vps_harden_mcp.py"
+    dest: "{{ hermes_mcp_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy the Hermes skill
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../integrations/hermes/skills/vps-harden/SKILL.md"
+    dest: "{{ hermes_skill_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Read the registered MCP servers
+  ansible.builtin.command:
+    argv: [bash, -lc, "hermes mcp list"]
+  register: hermes_mcp_list
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: hermes_register_mcp | bool
+
+- name: Register the MCP server with Hermes
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -lc
+      - >-
+        hermes mcp add vps-harden --command {{ ansible_playbook_python }}
+        --args {{ hermes_mcp_path }} --root {{ playbook_dir }}/..
+  register: hermes_mcp_add
+  changed_when: true
+  failed_when: false
+  when:
+    - hermes_register_mcp | bool
+    - hermes_mcp_list.stdout is not search('vps-harden')
+
+- name: Report MCP registration problems
+  ansible.builtin.debug:
+    msg: >-
+      MCP registration returned {{ hermes_mcp_add.rc | default(0) }}:
+      {{ hermes_mcp_add.stdout | default('') | trim }}
+      {{ hermes_mcp_add.stderr | default('') | trim }}
+      Register manually with:
+      hermes mcp add vps-harden --command {{ ansible_playbook_python }}
+      --args {{ hermes_mcp_path }} --root {{ playbook_dir }}/..
+  when:
+    - hermes_register_mcp | bool
+    - hermes_mcp_add.rc | default(0) != 0
+
+- name: Verify the Hermes gateway when it exists
+  ansible.builtin.command:
+    argv: [systemctl, is-active, "{{ hermes_gateway_service }}"]
+  register: hermes_gateway
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Report the Hermes gateway state
+  ansible.builtin.debug:
+    msg: >-
+      {{ hermes_gateway_service }} is {{ hermes_gateway.stdout | default('unknown') }}.
+      vps-harden does not manage the gateway lifecycle; it only provides the
+      read-only MCP tools and the operational skill.

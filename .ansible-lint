@@ -1,0 +1,25 @@
+---
+# ansible-lint configuration
+#
+# Skipped rules, with reasons — this is a deliberate convention, not a backlog:
+#
+# var-naming[no-role-prefix]
+#   The project uses service-based namespaces (`ufw_*`, `fail2ban_*`,
+#   `crowdsec_*`, `docker_*`, `tailscale_*`) instead of repeating the role name.
+#   `ssh_port` is intentionally global: the ssh, ufw, fail2ban and audit roles
+#   must agree on one port or the firewall will cut the SSH session.
+#
+# no-changed-when / risky-file-permissions are NOT skipped: every command task
+# declares changed_when and every file task declares a mode.
+exclude_paths:
+  - .cache/
+  - .venv/
+  - tests/molecule/**/molecule.yml
+skip_list:
+  - var-naming[no-role-prefix]
+warn_list:
+  - experimental
+  # Repository-added -> apt update must run before the install task in the same
+  # role, so it cannot be deferred to a handler.
+  - no-handler
+  - yaml[line-length]

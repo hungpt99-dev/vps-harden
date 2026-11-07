@@ -1,0 +1,34 @@
+---
+- name: Verify the baseline role applied what it claims
+  hosts: all
+  gather_facts: true
+  vars:
+    expected_timezone: Etc/UTC
+    expected_kptr_restrict: ["1", "2"]
+  tasks:
+    - name: Read back an applied sysctl
+      ansible.builtin.command:
+        argv: [sysctl, -n, kernel.kptr_restrict]
+      register: verify_kptr
+      changed_when: false
+      failed_when: false
+
+    - name: Assert the sysctl is in effect
+      ansible.builtin.assert:
+        that:
+          - verify_kptr.stdout | trim in expected_kptr_restrict
+        fail_msg: "kernel.kptr_restrict is {{ verify_kptr.stdout | trim }}"
+        quiet: true
+
+    - name: Read the configured timezone
+      ansible.builtin.command:
+        argv: [timedatectl, show, -p, Timezone, --value]
+      register: verify_tz
+      changed_when: false
+
+    - name: Assert the timezone matches the requested value
+      ansible.builtin.assert:
+        that:
+          - verify_tz.stdout | trim == expected_timezone
+        fail_msg: "timezone is {{ verify_tz.stdout | trim }}, expected {{ expected_timezone }}"
+        quiet: true

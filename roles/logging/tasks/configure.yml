@@ -1,0 +1,40 @@
+---
+- name: Create the journald drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: logging_manage_journald | bool
+
+- name: Bound the journal size and retention
+  ansible.builtin.template:
+    src: 99-vps-harden.conf.j2
+    dest: /etc/systemd/journald.conf.d/99-vps-harden.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: logging_manage_journald | bool
+  notify: Restart journald
+
+- name: Apply journald changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Read the effective journal disk usage
+  ansible.builtin.command:
+    argv: [journalctl, --disk-usage]
+  register: journal_usage
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Report journal usage
+  ansible.builtin.debug:
+    msg: >-
+      journald usage: {{ journal_usage.stdout | default('unknown') }}
+      (limit {{ logging_journald_max_use }}, retention {{ logging_journald_retention }})
+
+- name: Render the log aggregation stack
+  ansible.builtin.import_tasks: loki.yml
+  when: logging_loki_enabled | bool

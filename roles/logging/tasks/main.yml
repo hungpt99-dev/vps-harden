@@ -1,0 +1,7 @@
+---
+# journald configuration is a package-free change, so there is no install step.
+- name: Configure logging
+  ansible.builtin.import_tasks: configure.yml
+  when:
+    - logging_enabled | bool
+    - vh_phase | default('all') in ['install', 'all', 'configure']

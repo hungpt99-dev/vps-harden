@@ -1,0 +1,10 @@
+---
+- name: Install UFW
+  ansible.builtin.import_tasks: install.yml
+  when: vh_phase | default('all') in ['install', 'all']
+
+- name: Configure the firewall
+  ansible.builtin.import_tasks: configure.yml
+  when:
+    - ufw_enabled | bool
+    - vh_phase | default('all') in ['configure', 'all']

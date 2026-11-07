@@ -1,0 +1,74 @@
+---
+- name: Create the logging directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - "{{ logging_dir }}"
+    - "{{ logging_dir }}/loki"
+    - "{{ logging_dir }}/promtail"
+
+- name: Deploy the Loki configuration
+  ansible.builtin.template:
+    src: loki-config.yml.j2
+    dest: "{{ logging_dir }}/loki-config.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Deploy the Promtail configuration
+  ansible.builtin.template:
+    src: promtail-config.yml.j2
+    dest: "{{ logging_dir }}/promtail-config.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Deploy the logging compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ logging_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: Start the logging stack
+  ansible.builtin.command:
+    argv: [docker, compose, up, -d, --remove-orphans]
+    chdir: "{{ logging_dir }}"
+  register: logging_up
+  changed_when: "'Started' in logging_up.stderr or 'Created' in logging_up.stderr or 'Recreated' in logging_up.stderr"
+  when: not ansible_check_mode
+
+- name: Wait for the Loki endpoint
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ logging_loki_port }}"
+    timeout: 90
+  when: not ansible_check_mode
+
+- name: Verify Loki is ready
+  ansible.builtin.command:
+    argv: [curl, -fsS, "-o", /dev/null, "-w", "%{http_code}",
+           "http://127.0.0.1:{{ logging_loki_port }}/ready"]
+  register: logging_ready
+  changed_when: false
+  failed_when: false
+  retries: 10
+  delay: 3
+  until: logging_ready.stdout | default('') | trim == '200'
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Fail when Loki does not become ready
+  ansible.builtin.fail:
+    msg: >-
+      Loki did not report ready on 127.0.0.1:{{ logging_loki_port }}
+      (got {{ logging_ready.stdout | default('') | trim }}).
+      Check `docker compose -f {{ logging_dir }}/docker-compose.yml logs`.
+  when:
+    - not ansible_check_mode
+    - logging_ready.stdout | default('') | trim != '200'

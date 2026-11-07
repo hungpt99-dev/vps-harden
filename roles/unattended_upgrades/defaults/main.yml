@@ -1,0 +1,9 @@
+---
+unattended_upgrades_enabled: true
+unattended_automatic_reboot: false
+unattended_reboot_time: "03:00"
+unattended_remove_unused: true
+unattended_email: ""
+unattended_origins:
+  - security
+unattended_autoclean_interval: "7"

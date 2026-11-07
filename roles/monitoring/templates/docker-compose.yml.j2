@@ -1,0 +1,60 @@
+# {{ ansible_managed }}
+name: vps-harden-monitoring
+
+services:
+  prometheus:
+    image: {{ monitoring_prometheus_image }}
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time={{ monitoring_retention }}"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "{{ monitoring_bind_address }}:{{ monitoring_prometheus_port }}:9090"
+
+  node-exporter:
+    image: {{ monitoring_node_exporter_image }}
+    restart: unless-stopped
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--web.listen-address=0.0.0.0:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    # No published port: reachable only on the compose network.
+
+  cadvisor:
+    image: {{ monitoring_cadvisor_image }}
+    restart: unless-stopped
+    privileged: false
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
+  grafana:
+    image: {{ monitoring_grafana_image }}
+    restart: unless-stopped
+    environment:
+      GF_SERVER_HTTP_PORT: "3000"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "{{ monitoring_bind_address }}:{{ monitoring_grafana_port }}:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+  grafana-data:

@@ -1,0 +1,9 @@
+---
+# Reload, not restart: `systemctl reload docker` sends SIGHUP and does not stop
+# running containers. live-restore needs a restart to take effect, which would
+# interrupt workloads — that stays an operator decision.
+- name: Reload docker
+  ansible.builtin.systemd:
+    name: docker
+    state: reloaded
+  failed_when: false

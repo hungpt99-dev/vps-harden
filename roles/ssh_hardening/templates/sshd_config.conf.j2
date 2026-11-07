@@ -1,0 +1,39 @@
+# {{ ansible_managed }}
+#
+# vps-harden SSH hardening.
+#
+# This file is named 00-* on purpose. sshd uses the FIRST value it reads for a
+# keyword, and Ubuntu's cloud-init writes 50-cloud-init.conf with
+# "PasswordAuthentication yes". A 99-* file would silently lose.
+#
+# Do not edit: change config/vps-harden.yml and re-run `install.sh configure`.
+
+Port {{ ssh_port }}
+{% if ssh_permit_root_login is sameas true %}
+PermitRootLogin yes
+{% elif ssh_permit_root_login is sameas false %}
+PermitRootLogin no
+{% else %}
+PermitRootLogin {{ ssh_permit_root_login }}
+{% endif %}
+PubkeyAuthentication {{ 'yes' if ssh_pubkey_authentication | bool else 'no' }}
+PasswordAuthentication {{ 'yes' if ssh_password_authentication | bool else 'no' }}
+KbdInteractiveAuthentication {{ 'yes' if ssh_kbd_interactive_authentication | bool else 'no' }}
+UsePAM {{ 'yes' if ssh_use_pam | bool else 'no' }}
+
+MaxAuthTries {{ ssh_max_auth_tries }}
+LoginGraceTime {{ ssh_login_grace_time }}
+ClientAliveInterval {{ ssh_client_alive_interval }}
+ClientAliveCountMax {{ ssh_client_alive_count_max }}
+
+X11Forwarding {{ 'yes' if ssh_x11_forwarding | bool else 'no' }}
+AllowTcpForwarding {{ 'yes' if ssh_allow_tcp_forwarding | bool else 'no' }}
+AllowAgentForwarding {{ 'yes' if ssh_allow_agent_forwarding | bool else 'no' }}
+PermitUserEnvironment {{ 'yes' if ssh_permit_user_environment | bool else 'no' }}
+PermitEmptyPasswords no
+{% if ssh_allow_users | length > 0 %}
+AllowUsers {{ ssh_allow_users | join(' ') }}
+{% endif %}
+{% if ssh_allow_groups | length > 0 %}
+AllowGroups {{ ssh_allow_groups | join(' ') }}
+{% endif %}

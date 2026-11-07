@@ -1,0 +1,12 @@
+---
+- name: Install Tailscale
+  ansible.builtin.import_tasks: install.yml
+  when:
+    - tailscale_enabled | bool
+    - vh_phase | default('all') in ['install', 'all']
+
+- name: Configure Tailscale
+  ansible.builtin.import_tasks: configure.yml
+  when:
+    - tailscale_enabled | bool
+    - vh_phase | default('all') in ['configure', 'all']

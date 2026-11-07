@@ -1,0 +1,39 @@
+---
+- name: Collect installed packages
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Download the Tailscale repository key
+  ansible.builtin.get_url:
+    url: "{{ tailscale_key_url }}"
+    dest: "{{ tailscale_keyring }}"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+  when:
+    - tailscale_manage_repo | bool
+    - "'tailscale' not in ansible_facts.packages"
+
+- name: Add the Tailscale apt repository
+  ansible.builtin.copy:
+    content: "{{ tailscale_repo_line }}\n"
+    dest: /etc/apt/sources.list.d/tailscale.list
+    owner: root
+    group: root
+    mode: "0644"
+  register: tailscale_repo_added
+  when:
+    - tailscale_manage_repo | bool
+    - "'tailscale' not in ansible_facts.packages"
+
+- name: Refresh the package index after adding the repository
+  ansible.builtin.apt:
+    update_cache: true
+  when: tailscale_repo_added is changed
+
+- name: Install Tailscale
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+    install_recommends: false

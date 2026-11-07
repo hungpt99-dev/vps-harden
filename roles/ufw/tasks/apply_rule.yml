@@ -1,0 +1,25 @@
+---
+# Called once per rule from configure.yml. Builds an argv list so no shell
+# quoting is involved, and relies on UFW's own output to decide "changed":
+#   "Rule added"                    -> new rule
+#   "Skipping adding existing rule" -> already present
+- name: Build the firewall command for {{ item.comment | default(item.port | default(item.interface)) }}
+  ansible.builtin.set_fact:
+    ufw_cmd_parts: >-
+      {{ ['ufw', item.rule | default('allow')]
+         + (['in', 'on', item.interface] if item.interface is defined else [])
+         + (['from', item.from] if item.from is defined else [])
+         + (['to', 'any'] if item.from is defined and item.port is defined else [])
+         + ([item.port | string ~ '/' ~ (item.proto | default('tcp'))] if item.port is defined and item.from is not defined else [])
+         + (['port', item.port | string] if item.port is defined and item.from is defined else [])
+         + (['proto', item.proto | default('tcp')] if item.port is defined and item.from is defined else [])
+         + (['comment', item.comment] if item.comment is defined else []) }}
+
+- name: Apply firewall rule
+  ansible.builtin.command:
+    argv: "{{ ufw_cmd_parts }}"
+  register: ufw_rule_result
+  changed_when: >-
+    'Rule added' in ufw_rule_result.stdout or
+    'Rules updated' in ufw_rule_result.stdout
+  failed_when: ufw_rule_result.rc != 0

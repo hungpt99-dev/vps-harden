@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Daily vps-harden backup
+
+[Timer]
+OnCalendar={{ backup_schedule }}
+Persistent=true
+RandomizedDelaySec=30m
+Unit={{ backup_service }}
+
+[Install]
+WantedBy=timers.target
